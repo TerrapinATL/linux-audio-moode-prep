@@ -6,6 +6,8 @@ This document is a technical guide and automated script workflow for auditing, r
 
 It is intended for users who maintain large music collections and want a consistent process for correcting metadata issues, verifying file integrity, and preparing libraries for long-term archival.
 
+Note: Always work off a backup library copy until a clean copy has been secured by sha512 hashtags.
+
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 02. Requirements
