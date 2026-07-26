@@ -197,7 +197,7 @@ cat "$LOGDIR/step1_oks.log"
 
 cat "$LOGDIR/step1_fails.log"
 
-```bash
+```
 --- Bash Script End ---
 
 -------------------------------------------------------------------
