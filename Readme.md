@@ -20,12 +20,7 @@ Ensure you have the following command-line utilities installed on your system:
 * `loudgain`
 * `rsync`
 
-### Installation Example (Debian/Ubuntu/Linux Mint)
-```bash
-sudo apt update
-sudo apt install ffmpeg flac rsync
-
-### Recommended Workflow
+## Recommended Workflow
 
 A three part series to clean, verify, and lockdown securely the integrity of an audio file library. 
 
