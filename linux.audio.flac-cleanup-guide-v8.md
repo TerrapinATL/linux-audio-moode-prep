@@ -1494,9 +1494,7 @@ This step:
 
     Records which directories were successfully processed.
 
-ENTER SHA512 REPOSITORY HERE
-
-To verify the files at any point in the future, you can navigate to an album directory in the terminal and run sha256sum -c checksums.sha256.
+Link to SHA-512 Repository: https://github.com/TerrapinATL/linux.audio.sha512-checksums
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 
