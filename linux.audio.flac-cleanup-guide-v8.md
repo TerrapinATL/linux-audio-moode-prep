@@ -1494,119 +1494,7 @@ This step:
 
     Records which directories were successfully processed.
 
---- Bash Script Start ---
-```bash
-
-#!/usr/bin/env bash
-
-LOGDIR="$PWD/flac_logs"
-mkdir -p "$LOGDIR"
-
-mapfile -d '' dirs < <(
-find "$PWD" -type d -print0 | sort -z
-)
-
-total=${#dirs[@]}
-i=0
-processed=0
-
-for d in "${dirs[@]}"; do
-
-shopt -s nullglob
-flac_files=("$d"/*.flac)
-shopt -u nullglob
-
-if [ ${#flac_files[@]} -gt 0 ]; then
-    i=$((i+1))
-    
-    artist=$(basename "$(dirname "$d")")
-    album=$(basename "$d")
-    label="$artist-$album"
-
-    # Subshell to change directory without affecting the main script
-    (
-        cd "$d" || exit 1
-        
-        # Generate the generic checksum file
-        err=$(sha256sum *.flac > "checksums.sha256" 2>&1)
-        rc=$?
-        
-        exit $rc
-    )
-    
-    rc=$?
-
-    if [ $rc -ne 0 ]; then
-        echo "FAIL [$i]$label"
-        
-        echo "[$i] ERROR (exit$rc): $label ::$d :: Failed to generate checksums" \
-            >> "$LOGDIR/checksum_errors.log"
-    else
-        processed=$((processed+1))
-        echo "OK [$i]$label (Generated checksums.sha256)"
-    fi
-fi
-
-done | tee "$LOGDIR/step13c_run.log"
-
-echo "Processed $processed directories containing FLAC files." >> "$LOGDIR/step13c_run.log"
-
-```
---- Bash Script End ---
-
--- Separate Results
-
-After checksum generation completes, separate successful and failed results:
-
---- Bash Script Start ---
-```bash
-
-LOGDIR="$PWD/flac_logs"
-
-grep '^OK' "$LOGDIR/step13c_run.log"
-
-> "$LOGDIR/step13c_oks.log"
-
-grep '^FAIL' "$LOGDIR/step13c_run.log"
-
-> "$LOGDIR/step13c_fails.log"
-
-echo "Step 13c OKs: $(wc -l < "$LOGDIR/step13c_oks.log")  FAILs: $(wc -l < "$LOGDIR/step13c_fails.log")"
-
-```
---- Bash Script End ---
-
--- Review Results
-
-View the generated reports:
-
---- Bash Script Start ---
-```bash
-
-cat "$LOGDIR/checksum_errors.log"
-
-cat "$LOGDIR/step13c_run.log"
-
-cat "$LOGDIR/step13c_oks.log"
-
-cat "$LOGDIR/step13c_fails.log"
-
-```
---- Bash Script End ---
-
--- Expected Results
-
-A successful run produces:
-
-    step13c_run.log — Complete processing results.
-
-    step13c_oks.log — Albums that successfully had checksums generated.
-
-    step13c_fails.log — Albums that failed checksum generation (typically due to file permission issues).
-
-    checksum_errors.log — Detailed error output.
-
-    checksums.sha256 — A new file located inside every album directory containing the hashes.
+ENTER SHA512 REPOSITORY HERE
 
 To verify the files at any point in the future, you can navigate to an album directory in the terminal and run sha256sum -c checksums.sha256.
 
@@ -1674,3 +1562,5 @@ Once you have reviewed the final logs, verified that your master library is full
 -- Disclaimer
 
 This file is generated as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
+
+
