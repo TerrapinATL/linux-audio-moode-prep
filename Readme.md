@@ -32,5 +32,5 @@ A three part series to clean, verify, and lockdown securely the integrity of an 
 
 ## Disclaimer
 
-This file is generated as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
+This file was created as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
 
