@@ -10,6 +10,7 @@ This repository contains tools and documentation to help maintain a pristine, st
 
 * **FLAC Cleanup & Validation:** Step-by-step guidance and command workflows for verifying file integrity, stripping unnecessary tags, standardizing metadata, and applying proper checksums.
 * **Audio Processing Workflows:** Efficient use of command-line utilities for audio management.
+* **Permission Check:** Automated checks and guidance to ensure your user has the correct read/write ownership and access to the library directory before executing mass batch operations.
 
 ## Prerequisites
 
@@ -19,6 +20,8 @@ Ensure you have the following command-line utilities installed on your system:
 * `flac`
 * `loudgain`
 * `rsync`
+
+**Directory Permissions:** Before running any batch processing scripts, verify that your current user has full read and write permissions to the target library directory to prevent "Permission Denied" failures during execution.
 
 ## Recommended Workflow
 
