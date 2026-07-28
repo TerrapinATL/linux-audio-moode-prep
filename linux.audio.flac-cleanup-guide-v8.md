@@ -92,9 +92,11 @@ Additional optional procedures are available for standardizing album artwork and
 
 Files that continue to fail integrity testing should be considered for replacement with a clean copy that does.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 05. Step 1 – Initial Integrity Test
+
+---
 
 -- Purpose
 
@@ -213,9 +215,11 @@ A successful run produces:
 
 Files that fail this initial test should be reviewed, but they should not automatically be considered beyond repair. Later workflow steps may resolve some failures caused by metadata or container issues.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 06. Step 2 – Deduplicate Vorbis Comments
+
+---
 
 -- Purpose
 
@@ -380,9 +384,11 @@ A successful run produces:
 
 Files that fail this step should be reviewed. A failure here usually indicates that metaflac could not correctly read the file metadata and may require additional repair.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 07. Step 3 – Strip Invalid Metadata Headers (selective use for files that fail in above scripts)
+
+---
 
 -- Purpose
 
@@ -524,9 +530,11 @@ A successful run produces:
 
 After this step, files that previously contained invalid headers should have clean FLAC containers while preserving the original audio stream.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 08. Step 4 – Repeat Step 1 Integrity Test
+
+---
 
 -- Purpose
 
@@ -655,9 +663,11 @@ Files that failed Step 1 but pass Step 4 indicate that the container rebuild in 
 
 Files that continue to fail should be reviewed before continuing to the ReplayGain restoration step.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 09. Step 5 – Reapply ReplayGain
+
+---
 
 -- Purpose
 
@@ -846,9 +856,11 @@ A successful run produces:
 
 After this step, the FLAC files should contain restored ReplayGain metadata and remain unchanged from an audio-content perspective.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 10. Step 6 – Repeat Step 1 Integrity Test
+
+---
 
 -- Purpose
 
@@ -977,9 +989,11 @@ Files passing this test confirm that the standard repair workflow has completed 
 
 Files that continue to fail should be reviewed before continuing to cleanup and archival preparation.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 11. Step 7 – Remove Loose Files
+
+---
 
 -- Purpose
 
@@ -1062,9 +1076,11 @@ If the report is empty, no loose files requiring removal were found.
 
 After this step, the library should contain only the intended FLAC files and permanent supporting files required for archival preparation.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 12. Step 8 – Final Integrity Test
+
+---
 
 -- Purpose
 
@@ -1193,13 +1209,13 @@ A successful completion of this step confirms that the FLAC library has complete
 
 Files that continue to fail should be reviewed before archival storage. Additional troubleshooting or optional metadata repair procedures may be required.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 13. Optional Procedures
 
 The following procedures are not required for a standard library cleanup but may be necessary for resolving stubborn errors, standardizing visual presentation, or preparing the library for long-term preservation.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
     13a. Strip Problematic Metadata
 
@@ -1560,5 +1576,8 @@ Once you have reviewed the final logs, verified that your master library is full
 -- Disclaimer
 
 This file is generated as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
+
+
+
 
 
