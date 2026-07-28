@@ -34,3 +34,12 @@ A three part series to clean, verify, and lockdown securely the integrity of an 
 
 This file was created as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
 
+## IMPORTANT
+
+Your Original Library should be treated as immutable.
+
+You should only work on a COPY of your Original Library when processing these scripts. The workflow is designed around creating a validated secondary copy, testing the results, and only then promoting that copy to become a replacement.
+
+Before promotion, files should be cleaned, verified with flac -t, and protected with two layers of SHA-512 checksums.
+
+The purpose is to ensure you have a verifiable library that can be copied, backed up, and restored repeatedly while still matching the validated cleaned copy.
