@@ -122,6 +122,8 @@ No files are modified during this step.
 
 #!/usr/bin/env bash
 
+#Step 1 – Initial Integrity Test
+
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
@@ -247,6 +249,8 @@ No audio is re-encoded during this process.
 ```bash
 
 #!/usr/bin/env bash
+
+#Step 2 – Deduplicate Vorbis Comments
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
@@ -434,6 +438,8 @@ A warning related to embedded artwork may appear during this step. If a file rep
 
 #!/usr/bin/env bash
 
+#Step 3 – Strip Invalid Metadata Headers
+
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
@@ -578,6 +584,8 @@ This is a verification step only.
 
 #!/usr/bin/env bash
 
+#Step 4 – Repeat Step 1 Integrity Test
+
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
@@ -711,6 +719,8 @@ The calculation is performed at the album level to preserve the intended relatio
 ```bash
 
 #!/usr/bin/env bash
+
+#Step 5 – Reapply ReplayGain
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
@@ -904,6 +914,8 @@ This is a verification step only.
 
 #!/usr/bin/env bash
 
+#Step 6 – Repeat Step 1 Integrity Test
+
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
@@ -1036,6 +1048,8 @@ This step does not modify the audio data or FLAC metadata.
 
 #!/usr/bin/env bash
 
+#Step 7 – Remove Loose Files
+
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
@@ -1123,6 +1137,8 @@ This is a verification step only.
 ```bash
 
 #!/usr/bin/env bash
+
+#Step 8 – Final Integrity Test
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
@@ -1257,6 +1273,8 @@ Because this step removes embedded artwork, you may need to run the "Normalize A
 ```bash
 
 #!/usr/bin/env bash
+
+#13a. Strip Problematic Metadata
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
@@ -1408,6 +1426,8 @@ This step:
 ```bash
 
 #!/usr/bin/env bash
+
+#13b. Normalize Album Artwork
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
