@@ -122,7 +122,7 @@ No files are modified during this step.
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -169,7 +169,7 @@ After the test completes, separate successful and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step1_run.log" \
     > "$LOGDIR/step1_oks.log"
@@ -248,7 +248,7 @@ No audio is re-encoded during this process.
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -295,16 +295,30 @@ for f in "${files[@]}"; do
 
     if [ "$before" -ne "$after" ]; then
 
-        metaflac \
+        werr=$(metaflac \
             --preserve-modtime \
             --remove-all-tags \
             --import-tags-from="$dedup" \
-            "$f"
+            "$f" 2>&1 >/dev/null)
+        wrc=$?
 
-        echo "FIXED [$i/$total] $label ($((before-after)) duplicate line(s) removed)"
+        if [ $wrc -ne 0 ]; then
 
-        echo "[$i/$total] FIXED $label ($((before-after)) duplicate line(s) removed)" \
-            >> "$LOGDIR/tag_dedup.log"
+            wflat=$(echo "$werr" | tr '\n' ' ' | tr -s ' ')
+
+            echo "FAIL [$i/$total] $label"
+
+            echo "[$i/$total] ERROR (exit $wrc): $label :: $f :: ${wflat:-no stderr output}" \
+                >> "$LOGDIR/tag_dedup_errors.log"
+
+        else
+
+            echo "FIXED [$i/$total] $label ($((before-after)) duplicate line(s) removed)"
+
+            echo "[$i/$total] FIXED $label ($((before-after)) duplicate line(s) removed)" \
+                >> "$LOGDIR/tag_dedup.log"
+
+        fi
 
     else
 
@@ -329,7 +343,7 @@ After the cleanup completes, separate successful, modified, and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step2_run.log" \
     > "$LOGDIR/step2_oks.log"
@@ -420,7 +434,7 @@ A warning related to embedded artwork may appear during this step. If a file rep
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -484,7 +498,7 @@ After the rebuild completes, separate successful and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step3_run.log" \
     > "$LOGDIR/step3_oks.log"
@@ -564,7 +578,7 @@ This is a verification step only.
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -615,7 +629,7 @@ After the integrity test completes, separate successful and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step4_run.log" \
     > "$LOGDIR/step4_oks.log"
@@ -698,7 +712,7 @@ The calculation is performed at the album level to preserve the intended relatio
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' dirs < <(
@@ -810,7 +824,7 @@ After ReplayGain processing completes, separate successful and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step5_run.log" \
     > "$LOGDIR/step5_oks.log"
@@ -890,7 +904,7 @@ This is a verification step only.
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -941,7 +955,7 @@ After the integrity test completes, separate successful and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step6_run.log" \
     > "$LOGDIR/step6_oks.log"
@@ -1022,7 +1036,7 @@ This step does not modify the audio data or FLAC metadata.
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 echo "Loose file cleanup started"
@@ -1057,7 +1071,7 @@ View the cleanup report:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 cat "$LOGDIR/step7_removed_files.log"
 
@@ -1110,7 +1124,7 @@ This is a verification step only.
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -1161,7 +1175,7 @@ After the final integrity test completes, separate successful and failed results
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step8_run.log" \
     > "$LOGDIR/step8_oks.log"
@@ -1244,7 +1258,7 @@ Because this step removes embedded artwork, you may need to run the "Normalize A
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' files < <(
@@ -1276,19 +1290,34 @@ if [ $rc -ne 0 ]; then
 
     flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
 
-    echo "FAIL [$i/$total]$label"
+    echo "FAIL [$i/$total] $label"
 
-    echo "[$i/$total] ERROR (exit $rc):$label :: $f ::${flat:-no stderr output}" \
+    echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
         >> "$LOGDIR/strip_metadata_errors.log"
 
 else
     # Re-import the clean text tags
-    metaflac --import-tags-from="$tags" "$f"
+    err2=$(metaflac --import-tags-from="$tags" "$f" 2>&1 >/dev/null)
+    rc2=$?
 
     # Add a standard 8KB padding block back for future tag editing efficiency
-    metaflac --add-padding=8192 "$f"
+    err3=$(metaflac --add-padding=8192 "$f" 2>&1 >/dev/null)
+    rc3=$?
 
-    echo "FIXED [$i/$total]$label"
+    if [ $rc2 -ne 0 ] || [ $rc3 -ne 0 ]; then
+
+        flat=$(echo "$err2 $err3" | tr '\n' ' ' | tr -s ' ')
+
+        echo "FAIL [$i/$total] $label"
+
+        echo "[$i/$total] ERROR (re-import/padding): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOGDIR/strip_metadata_errors.log"
+
+    else
+
+        echo "FIXED [$i/$total] $label"
+
+    fi
 
 fi
 
@@ -1306,15 +1335,13 @@ After the stripping process completes, separate successful and failed results:
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
-grep '^FIXED' "$LOGDIR/step13a_run.log"
+grep '^FIXED' "$LOGDIR/step13a_run.log" \
+    > "$LOGDIR/step13a_fixed.log"
 
-> "$LOGDIR/step13a_fixed.log"
-
-grep '^FAIL' "$LOGDIR/step13a_run.log"
-
-> "$LOGDIR/step13a_fails.log"
+grep '^FAIL' "$LOGDIR/step13a_run.log" \
+    > "$LOGDIR/step13a_fails.log"
 
 echo "Step 13a FIXED: $(wc -l < "$LOGDIR/step13a_fixed.log")  FAILs: $(wc -l < "$LOGDIR/step13a_fails.log")"
 
@@ -1336,9 +1363,9 @@ cat "$LOGDIR/step13a_fixed.log"
 
 cat "$LOGDIR/step13a_fails.log"
 
+```
 --- Bash Script End ---
 
-```
 -- Expected Results
 
 A successful run produces:
@@ -1382,7 +1409,7 @@ This step:
 
 #!/usr/bin/env bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 
 mapfile -d '' dirs < <(
@@ -1448,7 +1475,7 @@ After the artwork normalization completes, separate successful and failed result
 --- Bash Script Start ---
 ```bash
 
-LOGDIR="$PWD/flac_logs"
+LOGDIR="$HOME/flac_logs"
 
 grep '^OK' "$LOGDIR/step13b_run.log" > "$LOGDIR/step13b_oks.log"
 grep '^FAIL' "$LOGDIR/step13b_run.log" > "$LOGDIR/step13b_fails.log"
@@ -1512,7 +1539,7 @@ This step:
 
 Link to SHA-512 Repository: https://github.com/TerrapinATL/linux.audio.sha512-checksums
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+--
 
 14. Troubleshooting & Reference Information
 
@@ -1531,6 +1558,9 @@ Run this command on the broken file:
 
 ffmpeg -i "broken.flac" -c:a flac "fixed.flac"
 
+```
+--- Bash Script End ---
+
 Once you verify that fixed.flac plays correctly and passes a flac -t check, you can replace the broken original.
 
 2. Permission Denied Errors
@@ -1539,11 +1569,14 @@ If tools like metaflac, loudgain, or sha256sum fail to write data to a directory
 
 To grant your current user full read and write access to the library, run:
 
-```
---- Bash Script End ---
+--- Bash Script Start ---
+```bash
 
 sudo chown -R $USER:$USER /path/to/your/music/library
 chmod -R u+rw /path/to/your/music/library
+
+```
+--- Bash Script End ---
 
 3. Checksum Verification Failures
 
@@ -1551,7 +1584,7 @@ If you ever run sha256sum -c checksums.sha256 in an album directory and it repor
 
 -- Log File Reference & Understanding Your Log Files
 
-Throughout this workflow, all scripts direct their tracking data to a dedicated flac_logs directory created at the root of your working folder ($PWD/flac_logs). This ensures your music directories remain completely free of random text files and gives you a centralized place to review the results of your mass operations.
+Throughout this workflow, all scripts direct their tracking data to a dedicated flac_logs directory created in your home directory ($HOME/flac_logs), regardless of which library folder you're working in. This ensures your music directories remain completely free of random text files and gives you a single, centralized place to review the results of your mass operations across every run.
 
 The logging system uses a consistent naming convention across all processing steps:
 
@@ -1571,12 +1604,11 @@ The logging system uses a consistent naming convention across all processing ste
 
 Once you have reviewed the final logs, verified that your master library is fully processed, and completed your rsync transfer to the external backup drive, you can safely delete the entire flac_logs directory. It is completely independent of the audio files and is no longer needed once the project is finished.
 
------------------------------------------------------------------------------------------------------------------------------------------------------------
+--
 
 -- Disclaimer
 
 This file is generated as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
-
 
 
 
