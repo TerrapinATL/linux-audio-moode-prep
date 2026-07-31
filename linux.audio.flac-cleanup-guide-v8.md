@@ -28,6 +28,19 @@ To successfully execute the scripts and workflows in this guide, your system mus
 
 To maintain the strict Parent -> Artist -> Album directory structure required by these automated scripts, multi-disc albums must not be nested in sub-directories. 
 
+```bash
+
+Parent/
+├── Artist1/
+│   ├── artist-level files
+│   ├── Album1/
+│   │   ├── album files
+│   │   └── ...
+│   └── Album2/
+└── Artist2/
+
+```
+
 The bash scripts determine the Artist and Album metadata labels based on the directory hierarchy (using standard dirname and basename commands). If you nest discs (e.g., Library/Artist/Album/Disc 1/), the scripts will incorrectly parse the path, misidentifying "Album" as the Artist, and "Disc 1" as the Album.
 
 To prevent structural errors and ensure tools like loudgain calculate album-level ReplayGain correctly, multi-disc albums should be organized using one of two methods:
