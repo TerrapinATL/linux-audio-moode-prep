@@ -28,7 +28,7 @@ To successfully execute the scripts and workflows in this guide, your system mus
 
 To maintain the strict Parent -> Artist -> Album directory structure required by these automated scripts, multi-disc albums must not be nested in sub-directories. 
 
-```bash
+```
 
 Parent/
 ├── Artist1/
