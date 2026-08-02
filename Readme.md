@@ -46,3 +46,33 @@ You should only work on a COPY of your Original Library when processing these sc
 Before promotion, files should be cleaned, verified with flac -t, and protected with two layers of SHA-512 checksums.
 
 The purpose is to ensure you have a verifiable library that can be copied, backed up, and restored repeatedly while still matching the validated cleaned copy.
+
+## Recommendations
+
+For those not familiar with using a Raspberry Pi as a Music Server, I have been using a Raspberry Pi 5 with Moode Audio and it has made a wonderful audio file server for my studio recordings. Moode is Freeware and is an amazing well constructed program optimized for a Raspberry Pi. It turns any web browser into a media interface to control playback and can be optimized to personal preferences. My setup is like a radio station with zero commercials, endless music.
+
+I had no need of a DAC chip, since one is integrated into my receiver. I do recommend one if your receiver/amp is not so equipped. More info on that is in the Moode Forum.
+
+-- Moode Audio
+
+Moode Software: https://moodeaudio.org/
+
+Moode Forum: https://moodeaudio.org/forum/member.php?action=register&referrer=13448
+
+-- My hardware set-up:
+
+Raspberry Pi 5 motherboard: https://vilros.com/products/raspberry-pi-5?variant=40065551269982
+
+Vilros Pi 5 Case: https://vilros.com/products/vilros-raspberry-pi-5-compatible-aluminum-alloy-case-with-passive-active-cooling-insert
+
+Vilros 5v/5a Power Supply: https://vilros.com/products/vilros-27w-5v-5a-raspberry-pi-5-compatible-usb-c-power-supply
+
+SanDisk 128gb MicroSD Card: https://vilros.com/products/vilros-27w-5v-5a-raspberry-pi-5-compatible-usb-c-power-supply
+
+HDMI Cable: https://www.amazon.com/UGREEN-Certified-Aluminum-Compatible-Blu-ray/dp/B0CFFFSFFN
+
+
+Note: These are recommendations based upon my experiences. I receive zero compensation for them. Please consider them a guide, nothing more. Your configuration may vary. For me, this worked quite well. 
+
+
+
