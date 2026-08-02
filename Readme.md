@@ -67,7 +67,7 @@ Vilros Pi 5 Case: https://vilros.com/products/vilros-raspberry-pi-5-compatible-a
 
 Vilros 5v/5a Power Supply: https://vilros.com/products/vilros-27w-5v-5a-raspberry-pi-5-compatible-usb-c-power-supply
 
-SanDisk 128gb MicroSD Card: https://vilros.com/products/vilros-27w-5v-5a-raspberry-pi-5-compatible-usb-c-power-supply
+SanDisk 128gb MicroSD Card: https://www.amazon.com/SANDISK-128GB-Extreme-microSD-UHS-I/dp/B0G8LLXFJH/
 
 HDMI Cable: https://www.amazon.com/UGREEN-Certified-Aluminum-Compatible-Blu-ray/dp/B0CFFFSFFN
 
