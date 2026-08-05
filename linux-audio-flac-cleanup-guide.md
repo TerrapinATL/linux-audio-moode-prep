@@ -1582,7 +1582,171 @@ Albums without a cover.jpg or folder.jpg are simply ignored by this script. To p
 
 -------------------------------------------------------------------
 
-## 13c. Generate Checksums
+## 13c. Deep Repair via Decode/Re-encode (Last Resort)
+
+--- Bash Script for 13c Start ---
+```bash
+
+#!/usr/bin/env bash
+#13c. Deep Repair via Decode/Re-encode (Last Resort)
+
+LOGDIR="$HOME/flac_logs"
+mkdir -p "$LOGDIR"
+: > "$LOGDIR/reencode_errors.log"
+: > "$LOGDIR/reencode_review.log"
+
+mapfile -d '' files < <(
+    find "$PWD" -type f -name "*.flac" \
+        ! -name "*.prerepair.flac" \
+        ! -name "*.reencode.flac" \
+        -print0 | sort -z
+)
+
+total=${#files[@]}
+i=0
+
+for f in "${files[@]}"; do
+    i=$((i+1))
+
+    artist=$(basename "$(dirname "$(dirname "$f")")")
+    album=$(basename "$(dirname "$f")")
+    track=$(basename "$f" .flac)
+
+    label="$artist-$album-$track"
+
+    testerr=$(flac -s -t "$f" 2>&1 >/dev/null)
+    testrc=$?
+
+    if [ $testrc -eq 0 ]; then
+        echo "OK [$i/$total] $label"
+        continue
+    fi
+
+    tags=$(mktemp)
+
+    tagerr=$(metaflac --export-tags-to="$tags" "$f" 2>&1 >/dev/null)
+    tagrc=$?
+
+    if [ $tagrc -ne 0 ]; then
+        flat=$(echo "$tagerr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label"
+        echo "[$i/$total] ERROR (exit $tagrc, tag export): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOGDIR/reencode_errors.log"
+        rm -f "$tags"
+        continue
+    fi
+
+    reerr=$(ffmpeg -nostdin -nostats -loglevel warning \
+        -i "$f" \
+        -map 0:a:0 \
+        -c:a flac \
+        "${f}.reencode.flac" \
+        -y 2>&1 >/dev/null)
+    rerc=$?
+
+    if [ $rerc -ne 0 ]; then
+        flat=$(echo "$reerr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label"
+        echo "[$i/$total] ERROR (exit $rerc, reencode): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOGDIR/reencode_errors.log"
+        rm -f "$tags" "${f}.reencode.flac"
+        continue
+    fi
+
+    posterr=$(flac -s -t "${f}.reencode.flac" 2>&1 >/dev/null)
+    postrc=$?
+
+    if [ $postrc -ne 0 ]; then
+        flat=$(echo "$posterr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label"
+        echo "[$i/$total] ERROR (exit $postrc, post-reencode test): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOGDIR/reencode_errors.log"
+        rm -f "$tags" "${f}.reencode.flac"
+        continue
+    fi
+
+    impterr=$(metaflac --import-tags-from="$tags" "${f}.reencode.flac" 2>&1 >/dev/null)
+    imprc=$?
+
+    if [ $imprc -ne 0 ]; then
+        flat=$(echo "$impterr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label"
+        echo "[$i/$total] ERROR (exit $imprc, tag reimport): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOGDIR/reencode_errors.log"
+        rm -f "$tags" "${f}.reencode.flac"
+        continue
+    fi
+
+    if [ ! -f "${f}.prerepair.flac" ]; then
+        cp "$f" "${f}.prerepair.flac"
+    fi
+
+    mv "${f}.reencode.flac" "$f"
+    rm -f "$tags"
+
+    if [ -n "$reerr" ]; then
+        flat=$(echo "$reerr" | tr '\n' ' ' | tr -s ' ')
+        echo "FIXED-REVIEW [$i/$total] $label"
+        echo "[$i/$total] REVIEW $label :: $f :: ffmpeg reported during decode: $flat" \
+            >> "$LOGDIR/reencode_review.log"
+    else
+        echo "FIXED-CLEAN [$i/$total] $label"
+    fi
+
+done | tee "$LOGDIR/step13c_run.log"
+
+```
+--- Bash Script for 13c End ---
+
+-------------------------------------------------------------------
+
+-- Separate Results
+
+--- Bash Script Results for 13c Start ---
+```bash
+
+LOGDIR="$HOME/flac_logs"
+
+grep '^OK' "$LOGDIR/step13c_run.log" \
+    > "$LOGDIR/step13c_oks.log"
+
+grep '^FIXED-CLEAN' "$LOGDIR/step13c_run.log" \
+    > "$LOGDIR/step13c_fixed_clean.log"
+
+grep '^FIXED-REVIEW' "$LOGDIR/step13c_run.log" \
+    > "$LOGDIR/step13c_fixed_review.log"
+
+grep '^FAIL' "$LOGDIR/step13c_run.log" \
+    > "$LOGDIR/step13c_fails.log"
+
+echo "Step 13c OKs: $(wc -l < "$LOGDIR/step13c_oks.log")  FIXED-CLEAN: $(wc -l < "$LOGDIR/step13c_fixed_clean.log")  FIXED-REVIEW: $(wc -l < "$LOGDIR/step13c_fixed_review.log")  FAILs: $(wc -l < "$LOGDIR/step13c_fails.log")"
+
+```
+--- Bash Script Results for 13c End ---
+
+-------------------------------------------------------------------
+
+-- Review Results
+
+View the generated reports:
+
+--- Bash Script Cat for 13c Start ---
+```bash
+
+cat "$LOGDIR/reencode_errors.log"
+cat "$LOGDIR/reencode_review.log"
+cat "$LOGDIR/step13c_run.log"
+cat "$LOGDIR/step13c_oks.log"
+cat "$LOGDIR/step13c_fixed_clean.log"
+cat "$LOGDIR/step13c_fixed_review.log"
+cat "$LOGDIR/step13c_fails.log"
+
+```
+--- Bash Script Cat for 13c End ---
+
+-------------------------------------------------------------------
+
+14. Generate Checksums
 
 -- Purpose
 
@@ -1610,7 +1774,7 @@ Link to SHA-512 Repository: https://github.com/TerrapinATL/linux.audio.sha512-ch
 
 ---
 
-14. Troubleshooting & Reference Information
+15. Troubleshooting & Reference Information
 
 ---
 
