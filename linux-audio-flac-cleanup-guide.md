@@ -762,16 +762,16 @@ The calculation is performed at the album level to preserve the intended relatio
 ```bash
 
 #!/usr/bin/env bash
-# Step 1 – Multi-Format Audio Integrity Test
+# Step 5 – Multi-Format Audio Integrity Test
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 : > "$LOGDIR/audio_test_errors.log"
-: > "$LOGDIR/step1_run.log"
+: > "$LOGDIR/step5_run.log"
 
 # Function to log and echo simultaneously (bypasses pipe buffering)
 log_echo() {
-    echo "$1" | tee -a "$LOGDIR/step1_run.log"
+    echo "$1" | tee -a "$LOGDIR/step5_run.log"
 }
 
 mapfile -d '' files < <(
