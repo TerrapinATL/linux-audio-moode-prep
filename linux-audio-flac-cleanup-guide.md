@@ -762,73 +762,111 @@ The calculation is performed at the album level to preserve the intended relatio
 ```bash
 
 #!/usr/bin/env bash
-# Step 5 – Multi-Format Audio Integrity Test
+#Step 5 – Reapply ReplayGain
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
-: > "$LOGDIR/audio_test_errors.log"
-: > "$LOGDIR/step5_run.log"
+: > "$LOGDIR/loudgain_errors.log"
 
-# Function to log and echo simultaneously (bypasses pipe buffering)
-log_echo() {
-    echo "$1" | tee -a "$LOGDIR/step5_run.log"
-}
-
-mapfile -d '' files < <(
-    find "$PWD" -type f \
-        \( \
-            -iname "*.flac" -o \
-            -iname "*.mp3"  -o \
-            -iname "*.m4a"  -o \
-            -iname "*.ogg"  -o \
-            -iname "*.opus" -o \
-            -iname "*.wav"  -o \
-            -iname "*.aiff" \
-        \) -print0 | sort -z
+mapfile -d '' dirs < <(
+    find "$PWD" -type d -print0 | sort -z
 )
 
-total=${#files[@]}
-i=0
+total=0
 
-for f in "${files[@]}"; do
-    i=$((i+1))
+for d in "${dirs[@]}"; do
 
-    artist=$(basename "$(dirname "$(dirname "$f")")")
-    album=$(basename "$(dirname "$f")")
-    track=$(basename "$f")
+    shopt -s nocaseglob nullglob
 
-    label="$artist-$album-$track"
+    files=(
+        "$d"/*.flac
+        "$d"/*.mp3
+        "$d"/*.m4a
+        "$d"/*.ogg
+        "$d"/*.opus
+        "$d"/*.wav
+        "$d"/*.alac
+        "$d"/*.wma
+    )
 
-    case "${f,,}" in
-        *.flac)
-            # Correct redirection order: stdout to /dev/null, stderr to $err
-            err=$(flac -s -t "$f" 2>&1 1>/dev/null)
-            rc=$?
-            ;;
-        *)
-            err=$(ffmpeg -v error -i "$f" -f null - 2>&1)
-            if [ -n "$err" ]; then
-                rc=1
-            else
-                rc=0
-            fi
-            ;;
-    esac
+    shopt -u nocaseglob nullglob
 
-    if [ $rc -ne 0 ]; then
-        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-        log_echo "FAIL [$i/$total] $label"
-        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-            >> "$LOGDIR/audio_test_errors.log"
-    else
-        log_echo "OK [$i/$total] $label"
+    if [ ${#files[@]} -gt 0 ]; then
+        total=$((total+1))
     fi
 
 done
 
+i=0
+
+for d in "${dirs[@]}"; do
+
+    shopt -s nocaseglob nullglob
+
+    files=(
+        "$d"/*.flac
+        "$d"/*.mp3
+        "$d"/*.m4a
+        "$d"/*.ogg
+        "$d"/*.opus
+        "$d"/*.wav
+        "$d"/*.alac
+        "$d"/*.wma
+    )
+
+    shopt -u nocaseglob nullglob
+
+    if [ ${#files[@]} -gt 0 ]; then
+
+        readarray -t files < <(
+            printf '%s\n' "${files[@]}" | sort
+        )
+
+        i=$((i+1))
+
+        artist=$(basename "$(dirname "$d")")
+        album=$(basename "$d")
+
+        label="$artist-$album"
+
+        err=$(loudgain \
+            -a \
+            -k \
+            -- \
+            "${files[@]}" \
+            2>&1 >/dev/null)
+
+        rc=$?
+
+        if [ $rc -ne 0 ]; then
+
+            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+
+            tracklist=""
+            n=0
+
+            for f in "${files[@]}"; do
+                n=$((n+1))
+                tracklist="$tracklist $n=$(basename "$f")"
+            done
+
+            echo "FAIL [$i/$total] $label"
+
+            echo "[$i/$total] ERROR (exit $rc): $label :: $d :: tracks:$tracklist :: ${flat:-no stderr output}" \
+                >> "$LOGDIR/loudgain_errors.log"
+
+        else
+
+            echo "OK [$i/$total] $label"
+
+        fi
+
+    fi
+
+done | tee "$LOGDIR/step5_run.log"
+
 ```
 --- Bash Script Step 5 End ---
-
 -------------------------------------------------------------------
 
 -- Separate Results
