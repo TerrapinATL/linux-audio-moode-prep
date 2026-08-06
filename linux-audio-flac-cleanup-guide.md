@@ -762,108 +762,78 @@ The calculation is performed at the album level to preserve the intended relatio
 ```bash
 
 #!/usr/bin/env bash
-#Step 5 – Reapply ReplayGain
+# Step 5 – Reapply ReplayGain (moOde Audio Standard)
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 : > "$LOGDIR/loudgain_errors.log"
+: > "$LOGDIR/step5_run.log"
 
-mapfile -d '' dirs < <(
-    find "$PWD" -type d -print0 | sort -z
-)
+# 1. Gather and sort directories by path (Artist/Album) case-insensitively
+mapfile -d '' dirs < <(find "$PWD" -type d -print0 | LC_ALL=C sort -f -z)
 
+# 2. Calculate total folders containing supported audio files
 total=0
-
 for d in "${dirs[@]}"; do
-
     shopt -s nocaseglob nullglob
-
     files=(
-        "$d"/*.flac
-        "$d"/*.mp3
-        "$d"/*.m4a
-        "$d"/*.ogg
-        "$d"/*.opus
-        "$d"/*.wav
-        "$d"/*.alac
-        "$d"/*.wma
+        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg 
+        "$d"/*.opus "$d"/*.mp4 "$d"/*.aac "$d"/*.ape 
+        "$d"/*.wv   "$d"/*.mpc "$d"/*.spx
     )
-
     shopt -u nocaseglob nullglob
 
     if [ ${#files[@]} -gt 0 ]; then
-        total=$((total+1))
+        total=$((total + 1))
     fi
-
 done
 
 i=0
 
+# 3. Process each directory in Artist/Album order
 for d in "${dirs[@]}"; do
-
     shopt -s nocaseglob nullglob
-
     files=(
-        "$d"/*.flac
-        "$d"/*.mp3
-        "$d"/*.m4a
-        "$d"/*.ogg
-        "$d"/*.opus
-        "$d"/*.wav
-        "$d"/*.alac
-        "$d"/*.wma
+        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg 
+        "$d"/*.opus "$d"/*.mp4 "$d"/*.aac "$d"/*.ape 
+        "$d"/*.wv   "$d"/*.mpc "$d"/*.spx
     )
-
     shopt -u nocaseglob nullglob
 
     if [ ${#files[@]} -gt 0 ]; then
+        i=$((i + 1))
 
-        readarray -t files < <(
-            printf '%s\n' "${files[@]}" | sort
-        )
-
-        i=$((i+1))
+        # Sort files by filename using natural version sorting (-V) and null-delimiters (-z)
+        mapfile -d '' files < <(printf '%s\0' "${files[@]}" | LC_ALL=C sort -f -z -V)
 
         artist=$(basename "$(dirname "$d")")
         album=$(basename "$d")
+        label="$artist - $album"
 
-        label="$artist-$album"
+        # Line 1: Header output
+        echo "OK [$i/$total] $label" | tee -a "$LOGDIR/step5_run.log"
 
-        err=$(loudgain \
-            -a \
-            -k \
-            -- \
-            "${files[@]}" \
-            2>&1 >/dev/null)
-
+        # Option A: Run loudgain live directly to terminal (moOde standard -s e -L)
+        loudgain -a -k -s e -L -- "${files[@]}"
         rc=$?
 
+        # Handle failure if loudgain returns a non-zero exit code
         if [ $rc -ne 0 ]; then
-
-            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+            echo "FAIL [$i/$total] $label" | tee -a "$LOGDIR/step5_run.log"
 
             tracklist=""
             n=0
-
             for f in "${files[@]}"; do
-                n=$((n+1))
+                n=$((n + 1))
                 tracklist="$tracklist $n=$(basename "$f")"
             done
 
-            echo "FAIL [$i/$total] $label"
-
-            echo "[$i/$total] ERROR (exit $rc): $label :: $d :: tracks:$tracklist :: ${flat:-no stderr output}" \
+            echo "[$i/$total] ERROR (exit $rc): $label :: $d :: tracks:$tracklist" \
                 >> "$LOGDIR/loudgain_errors.log"
-
-        else
-
-            echo "OK [$i/$total] $label"
-
         fi
-
+        echo ""
     fi
-
-done | tee "$LOGDIR/step5_run.log"
+done
 
 ```
 --- Bash Script Step 5 End ---
