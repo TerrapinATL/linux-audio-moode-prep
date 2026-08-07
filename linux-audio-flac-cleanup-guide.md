@@ -769,6 +769,9 @@ mkdir -p "$LOGDIR"
 : > "$LOGDIR/loudgain_errors.log"
 : > "$LOGDIR/step5_run.log"
 
+# Supported audio extensions
+SUPPORTED_EXTS=(flac mp3 m4a ogg opus mp4 aac ape wv mpc spx)
+
 # 1. Gather and sort directories by path (Artist/Album) case-insensitively
 mapfile -d '' dirs < <(find "$PWD" -type d -print0 | LC_ALL=C sort -f -z)
 
@@ -803,9 +806,6 @@ for d in "${dirs[@]}"; do
     if [ ${#files[@]} -gt 0 ]; then
         i=$((i + 1))
 
-        # Sort files by filename using natural version sorting (-V) and null-delimiters (-z)
-        mapfile -d '' files < <(printf '%s\0' "${files[@]}" | LC_ALL=C sort -f -z -V)
-
         artist=$(basename "$(dirname "$d")")
         album=$(basename "$d")
         label="$artist - $album"
@@ -813,24 +813,36 @@ for d in "${dirs[@]}"; do
         # Line 1: Header output
         echo "OK [$i/$total] $label" | tee -a "$LOGDIR/step5_run.log"
 
-        # Option A: Run loudgain live directly to terminal (moOde standard -s e -L)
-        loudgain -a -k -s e -L -- "${files[@]}"
-        rc=$?
+        # Process each audio format separately to prevent TagLib container errors
+        for ext in "${SUPPORTED_EXTS[@]}"; do
+            shopt -s nocaseglob nullglob
+            group=("$d"/*."$ext")
+            shopt -u nocaseglob nullglob
 
-        # Handle failure if loudgain returns a non-zero exit code
-        if [ $rc -ne 0 ]; then
-            echo "FAIL [$i/$total] $label" | tee -a "$LOGDIR/step5_run.log"
+            if [ ${#group[@]} -gt 0 ]; then
+                # Sort format group naturally
+                mapfile -d '' group_sorted < <(printf '%s\0' "${group[@]}" | LC_ALL=C sort -f -z -V)
 
-            tracklist=""
-            n=0
-            for f in "${files[@]}"; do
-                n=$((n + 1))
-                tracklist="$tracklist $n=$(basename "$f")"
-            done
+                # Option A: Run loudgain live directly to terminal (moOde standard -s e -L)
+                loudgain -a -k -s e -L -- "${group_sorted[@]}"
+                rc=$?
 
-            echo "[$i/$total] ERROR (exit $rc): $label :: $d :: tracks:$tracklist" \
-                >> "$LOGDIR/loudgain_errors.log"
-        fi
+                # Handle failure if loudgain returns a non-zero exit code
+                if [ $rc -ne 0 ]; then
+                    echo "FAIL [$i/$total] $label [.$ext]" | tee -a "$LOGDIR/step5_run.log"
+
+                    tracklist=""
+                    n=0
+                    for f in "${group_sorted[@]}"; do
+                        n=$((n + 1))
+                        tracklist="$tracklist $n=$(basename "$f")"
+                    done
+
+                    echo "[$i/$total] ERROR (exit $rc): $label [.$ext] :: $d :: tracks:$tracklist" \
+                        >> "$LOGDIR/loudgain_errors.log"
+                fi
+            fi
+        done
         echo ""
     fi
 done
