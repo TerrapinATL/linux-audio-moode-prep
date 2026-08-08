@@ -1,5 +1,4 @@
---
-
+---
 01. Introduction
 
 ---
@@ -32,18 +31,14 @@ To successfully execute the scripts and workflows in this guide, your system mus
 
 To maintain the strict Parent -> Artist -> Album directory structure required by these automated scripts, multi-disc albums must not be nested in sub-directories. 
 
-```
-
-Parent/
-├── Artist1/
-│   ├── artist-level files
-│   ├── Album1/
-│   │   ├── album files
-│   │   └── ...
-│   └── Album2/
-└── Artist2/
-
-```
+    Parent/
+    ├── Artist1/
+    │   ├── artist-level files
+    │   ├── Album1/
+    │   │   ├── album files
+    │   │   └── ...
+    │   └── Album2/
+    └── Artist2/
 
 The bash scripts determine the Artist and Album metadata labels based on the directory hierarchy (using standard dirname and basename commands). If you nest discs (e.g., Library/Artist/Album/Disc 1/), the scripts will incorrectly parse the path, misidentifying "Album" as the Artist, and "Disc 1" as the Album.
 
@@ -70,11 +65,11 @@ This preserves the script's strict structural pathing, though loudgain will calc
 
 This guide is built on three core engineering principles:
 
-    Non-Destructive Processing: Audio streams are never re-encoded during cleanup, ensuring zero generational loss or degradation of audio quality.
+* Non-Destructive Processing: Audio streams are never re-encoded during cleanup, ensuring zero generational loss or degradation of audio quality.
 
-    Explicit Verification: Every automated modification is bracketed by strict validation tests to catch errors immediately rather than propagating them through the library.
+* Explicit Verification: Every automated modification is bracketed by strict validation tests to catch errors immediately rather than propagating them through the library.
 
-    Traceable Execution: All operations generate clean, timestamped logs and separate success/failure lists, ensuring total transparency and auditability across large-scale library management.
+* Traceable Execution: All operations generate clean, timestamped logs and separate success/failure lists, ensuring total transparency and auditability across large-scale library management.
 
 ---
 
@@ -136,76 +131,76 @@ This step:
 
 No files are modified during this step.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 1 Start ---
 ```bash
 
-#!/usr/bin/env bash
-# Step 1 – Multi-Format Audio Integrity Test
-
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-: > "$LOGDIR/audio_test_errors.log"
-
-# Search recursively for supported audio extensions
-mapfile -d '' files < <(
-    find "$PWD" -type f \
-        \( \
-            -iname "*.flac" -o \
-            -iname "*.mp3"  -o \
-            -iname "*.m4a"  -o \
-            -iname "*.ogg"  -o \
-            -iname "*.opus" -o \
-            -iname "*.wav"  -o \
-            -iname "*.aiff" \
-        \) -print0 | sort -z
-)
-
-total=${#files[@]}
-i=0
-
-for f in "${files[@]}"; do
-    i=$((i+1))
-
-    artist=$(basename "$(dirname "$(dirname "$f")")")
-    album=$(basename "$(dirname "$f")")
-    track=$(basename "$f")
-
-    label="$artist-$album-$track"
-
-    # Route verification by format
-    case "${f,,}" in
-        *.flac)
-            err=$(flac -s -t "$f" 2>&1 >/dev/null)
-            rc=$?
-            ;;
-        *)
-            err=$(ffmpeg -v error -i "$f" -f null - 2>&1)
-            # ffmpeg outputs error text on failure, check both exit code and output
-            if [ -n "$err" ]; then
-                rc=1
-            else
-                rc=0
-            fi
-            ;;
-    esac
-
-    if [ $rc -ne 0 ]; then
-        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-        echo "FAIL [$i/$total] $label"
-        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-            >> "$LOGDIR/audio_test_errors.log"
-    else
-        echo "OK [$i/$total] $label"
-    fi
-
-done | tee "$LOGDIR/step1_run.log"
+    #!/usr/bin/env bash
+    # Step 1 – Multi-Format Audio Integrity Test
+    
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    : > "$LOGDIR/audio_test_errors.log"
+    
+    # Search recursively for supported audio extensions
+    mapfile -d '' files < <(
+        find "$PWD" -type f \
+            \( \
+                -iname "*.flac" -o \
+                -iname "*.mp3"  -o \
+                -iname "*.m4a"  -o \
+                -iname "*.ogg"  -o \
+                -iname "*.opus" -o \
+                -iname "*.wav"  -o \
+                -iname "*.aiff" \
+            \) -print0 | sort -z
+    )
+    
+    total=${#files[@]}
+    i=0
+    
+    for f in "${files[@]}"; do
+        i=$((i+1))
+    
+        artist=$(basename "$(dirname "$(dirname "$f")")")
+        album=$(basename "$(dirname "$f")")
+        track=$(basename "$f")
+    
+        label="$artist-$album-$track"
+    
+        # Route verification by format
+        case "${f,,}" in
+            *.flac)
+                err=$(flac -s -t "$f" 2>&1 >/dev/null)
+                rc=$?
+                ;;
+            *)
+                err=$(ffmpeg -v error -i "$f" -f null - 2>&1)
+                # ffmpeg outputs error text on failure, check both exit code and output
+                if [ -n "$err" ]; then
+                    rc=1
+                else
+                    rc=0
+                fi
+                ;;
+        esac
+    
+        if [ $rc -ne 0 ]; then
+            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+            echo "FAIL [$i/$total] $label"
+            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
+                >> "$LOGDIR/audio_test_errors.log"
+        else
+            echo "OK [$i/$total] $label"
+        fi
+    
+    done | tee "$LOGDIR/step1_run.log"
 
 ```
 --- Bash Script Step 1 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -214,20 +209,20 @@ After the test completes, separate successful and failed results:
 --- Bash Script Results 1 Start ---
 ```bash
 
-LOGDIR="$HOME/flac_logs"
-
-grep '^OK' "$LOGDIR/step1_run.log" \
-    > "$LOGDIR/step1_oks.log"
-
-grep '^FAIL' "$LOGDIR/step1_run.log" \
-    > "$LOGDIR/step1_fails.log"
-
-echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step1_run.log" \
+        > "$LOGDIR/step1_oks.log"
+    
+    grep '^FAIL' "$LOGDIR/step1_run.log" \
+        > "$LOGDIR/step1_fails.log"
+    
+    echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
 
 ```
 --- Bash Script Results 1 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -236,18 +231,18 @@ View the generated reports:
 --- Bash Script Cat 1 Start ---
 ```bash
 
-cat "$LOGDIR/flac_test_errors.log"
-
-cat "$LOGDIR/step1_run.log"
-
-cat "$LOGDIR/step1_oks.log"
-
-cat "$LOGDIR/step1_fails.log"
+    cat "$LOGDIR/audio_test_errors.log"
+    
+    cat "$LOGDIR/step1_run.log"
+    
+    cat "$LOGDIR/step1_oks.log"
+    
+    cat "$LOGDIR/step1_fails.log"
 
 ```
 --- Bash Script Cat 1 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -256,7 +251,7 @@ A successful run produces:
 * step1_run.log — Complete test results.
 * step1_oks.log — Files that passed integrity testing.
 * step1_fails.log — Files that failed integrity testing.
-* flac_test_errors.log — Detailed error output from failed tests.
+* audio_test_errors.log — Detailed error output from failed tests.
 
 Files that fail this initial test should be reviewed, but they should not automatically be considered beyond repair. Later workflow steps may resolve some failures caused by metadata or container issues.
 
@@ -286,102 +281,133 @@ This step:
 
 No audio is re-encoded during this process.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
---- Bash Script Step 2 Start ---
+-- Step 2A: File Discovery & Log Initialization
+
+--- Bash Script Step 2A Start ---
 ```bash
 
-#!/usr/bin/env bash
-#Step 2 – Deduplicate Vorbis Comments
+    #!/usr/bin/env bash
+    # Step 2A: File Discovery & Log Initialization
 
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-: > "$LOGDIR/tag_dedup_errors.log"
-: > "$LOGDIR/tag_dedup.log"
+    bash << 'EOF'
 
-mapfile -d '' files < <(
-    find "$PWD" -type f -name "*.flac" -print0 | sort -z
-)
-
-total=${#files[@]}
-i=0
-
-for f in "${files[@]}"; do
-    i=$((i+1))
-
-    artist=$(basename "$(dirname "$(dirname "$f")")")
-    album=$(basename "$(dirname "$f")")
-    track=$(basename "$f" .flac)
-
-    label="$artist-$album-$track"
-
-    raw=$(mktemp)
-    dedup=$(mktemp)
-
-    err=$(metaflac --export-tags-to="$raw" "$f" 2>&1 >/dev/null)
-    rc=$?
-
-    if [ $rc -ne 0 ]; then
-
-        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-
-        echo "FAIL [$i/$total] $label"
-
-        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-            >> "$LOGDIR/tag_dedup_errors.log"
-
-        rm -f "$raw" "$dedup"
-        continue
-
-    fi
-
-    before=$(wc -l < "$raw")
-
-    awk '!seen[$0]++' "$raw" > "$dedup"
-
-    after=$(wc -l < "$dedup")
-
-    if [ "$before" -ne "$after" ]; then
-
-        werr=$(metaflac \
-            --preserve-modtime \
-            --remove-all-tags \
-            --import-tags-from="$dedup" \
-            "$f" 2>&1 >/dev/null)
-        wrc=$?
-
-        if [ $wrc -ne 0 ]; then
-
-            wflat=$(echo "$werr" | tr '\n' ' ' | tr -s ' ')
-
-            echo "FAIL [$i/$total] $label"
-
-            echo "[$i/$total] ERROR (exit $wrc): $label :: $f :: ${wflat:-no stderr output}" \
-                >> "$LOGDIR/tag_dedup_errors.log"
-
-        else
-
-            echo "FIXED [$i/$total] $label ($((before-after)) duplicate line(s) removed)"
-
-            echo "[$i/$total] FIXED $label ($((before-after)) duplicate line(s) removed)" \
-                >> "$LOGDIR/tag_dedup.log"
-
-        fi
-
-    else
-
-        echo "OK [$i/$total] $label"
-
-    fi
-
-    rm -f "$raw" "$dedup"
-
-done | tee "$LOGDIR/step2_run.log"
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    ERR_LOG="$LOGDIR/tag_dedup_errors.log"
+    FIX_LOG="$LOGDIR/tag_dedup.log"
+    RUN_LOG="$LOGDIR/step2_run.log"
+    
+    : > "$ERR_LOG"; : > "$FIX_LOG"
+    
+    TARGET_LIST="/tmp/step2_targets.txt"
+    find "$PWD" -type f -iname "*.flac" -print0 | LC_ALL=C sort -z > "$TARGET_LIST"
+    
+    total=$(grep -cz '^' "$TARGET_LIST" 2>/dev/null || echo 0)
+    echo "Part A Complete: Found $total .flac file(s) in $PWD"
+    EOF
 
 ```
---- Bash Script Step 2 End ---
+--- Bash Script Step 2A End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
+
+-- Step 2B: Tag Processing & Deduplication
+
+--- Bash Script Step 2B Start ---
+```bash
+
+    #!/usr/bin/env bash
+    # Step 2B: Tag Processing & Deduplication
+
+    bash << 'EOF'
+
+    LOGDIR="$HOME/flac_logs"
+    ERR_LOG="$LOGDIR/tag_dedup_errors.log"
+    FIX_LOG="$LOGDIR/tag_dedup.log"
+    RUN_LOG="$LOGDIR/step2_run.log"
+    TARGET_LIST="/tmp/step2_targets.txt"
+    
+    mapfile -d '' files < "$TARGET_LIST"
+    total=${#files[@]}
+    [ "$total" -eq 0 ] && { echo "No target files to process."; exit 0; }
+    
+    i=0; fixed_count=0; ok_count=0; fail_count=0
+    
+    for f in "${files[@]}"; do
+        i=$((i+1))
+        filename=$(basename "$f"); track="${filename%.*}"
+        dir_path=$(dirname "$f"); album=$(basename "$dir_path"); artist=$(basename "$(dirname "$dir_path")")
+        [ "$dir_path" = "$PWD" ] && label="$album-$track" || label="$artist-$album-$track"
+    
+        raw=$(mktemp); dedup=$(mktemp)
+    
+        if ! err=$(metaflac --export-tags-to="$raw" "$f" 2>&1 >/dev/null); then
+            fail_count=$((fail_count+1))
+            echo "FAIL [$i/$total] $label"
+            echo "[$i/$total] ERROR: $label :: $f :: ${err:-Export failed}" >> "$ERR_LOG"
+            rm -f "$raw" "$dedup"; continue
+        fi
+    
+        [ -n "$(tail -c1 "$raw")" ] && echo "" >> "$raw"
+        before=$(grep -c '^' "$raw")
+    
+        awk -F'=' 'BEGIN{IGNORECASE=1}/^[^=]+=/ {key=toupper($1); val=substr($0,length($1)+2); pair=key"="val; if(!seen[pair]++) print $1"="val; next} {print}' "$raw" > "$dedup"
+        after=$(grep -c '^' "$dedup")
+    
+        if [ "$before" -ne "$after" ]; then
+            if metaflac --preserve-modtime --remove-all-tags --import-tags-from="$dedup" "$f" 2>&1 >/dev/null; then
+                fixed_count=$((fixed_count+1)); diff=$((before-after))
+                echo "FIXED [$i/$total] $label ($diff duplicate tag line(s) removed)"
+                echo "[$i/$total] FIXED $label ($diff duplicate line(s) removed)" >> "$FIX_LOG"
+            else
+                fail_count=$((fail_count+1))
+                echo "FAIL [$i/$total] $label"
+                echo "[$i/$total] ERROR: $label :: $f :: Import failed" >> "$ERR_LOG"
+            fi
+        else
+            ok_count=$((ok_count+1))
+            echo "OK [$i/$total] $label"
+        fi
+        rm -f "$raw" "$dedup"
+    done | tee "$RUN_LOG"
+    
+    echo "fixed_count=$fixed_count; ok_count=$ok_count; fail_count=$fail_count; total=$total" > /tmp/step2_stats.txt
+    EOF
+
+```
+--- Bash Script Step 2B End ---
+
+\-------------------------------------------------------------------
+
+-- Step 2C: Summary & Clean Up
+
+--- Bash Script Step 2C Start ---
+```bash
+
+    #!/usr/bin/env bash
+    # Step 2C: Summary & Clean Up
+
+    bash << 'EOF'
+
+    LOGDIR="$HOME/flac_logs"
+    RUN_LOG="$LOGDIR/step2_run.log"
+    
+    if [ -f /tmp/step2_stats.txt ]; then
+        source /tmp/step2_stats.txt
+        echo "----------------------------------------" | tee -a "$RUN_LOG"
+        echo "Step 2 Complete | Total: $total | OK: $ok_count | Fixed: $fixed_count | Failed: $fail_count" | tee -a "$RUN_LOG"
+        rm -f /tmp/step2_targets.txt /tmp/step2_stats.txt
+    else
+        echo "Part C Error: No statistics found. Run Part B first."
+    fi
+    EOF
+
+```
+--- Bash Script Step 2C End ---
+
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -390,23 +416,23 @@ After the cleanup completes, separate successful, modified, and failed results:
 --- Bash Script Results 2 Start ---
 ```bash
 
-LOGDIR="$HOME/flac_logs"
-
-grep '^OK' "$LOGDIR/step2_run.log" \
-    > "$LOGDIR/step2_oks.log"
-
-grep '^FIXED' "$LOGDIR/step2_run.log" \
-    > "$LOGDIR/step2_fixed.log"
-
-grep '^FAIL' "$LOGDIR/step2_run.log" \
-    > "$LOGDIR/step2_fails.log"
-
-echo "Step 2 OKs: $(wc -l < "$LOGDIR/step2_oks.log")  FIXED: $(wc -l < "$LOGDIR/step2_fixed.log")  FAILs: $(wc -l < "$LOGDIR/step2_fails.log")"
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step2_run.log" \
+        > "$LOGDIR/step2_oks.log"
+    
+    grep '^FIXED' "$LOGDIR/step2_run.log" \
+        > "$LOGDIR/step2_fixed.log"
+    
+    grep '^FAIL' "$LOGDIR/step2_run.log" \
+        > "$LOGDIR/step2_fails.log"
+    
+    echo "Step 2 OKs: $(wc -l < "$LOGDIR/step2_oks.log")  FIXED: $(wc -l < "$LOGDIR/step2_fixed.log")  FAILs: $(wc -l < "$LOGDIR/step2_fails.log")"
 
 ```
 --- Bash Script Results 2 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -415,22 +441,22 @@ View the generated reports:
 --- Bash Script Cat 2 Start ---
 ```bash
 
-cat "$LOGDIR/tag_dedup_errors.log"
-
-cat "$LOGDIR/tag_dedup.log"
-
-cat "$LOGDIR/step2_run.log"
-
-cat "$LOGDIR/step2_oks.log"
-
-cat "$LOGDIR/step2_fixed.log"
-
-cat "$LOGDIR/step2_fails.log"
+    cat "$LOGDIR/tag_dedup_errors.log"
+    
+    cat "$LOGDIR/tag_dedup.log"
+    
+    cat "$LOGDIR/step2_run.log"
+    
+    cat "$LOGDIR/step2_oks.log"
+    
+    cat "$LOGDIR/step2_fixed.log"
+    
+    cat "$LOGDIR/step2_fails.log"
 
 ```
 --- Bash Script Cat 2 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -474,71 +500,71 @@ No audio quality changes are introduced because the audio stream is copied rathe
 
 A warning related to embedded artwork may appear during this step. If a file reports an embedded-image issue, it may require the optional metadata cleanup procedure later in the workflow (Step 13a – Strip Problematic Metadata, followed by Step 13b – Normalize Album Artwork to restore clean cover art).
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 3 Start ---
 ```bash
 
-#!/usr/bin/env bash
-#Step 3 – Strip Invalid Metadata Headers
-
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-: > "$LOGDIR/ffmpeg_errors.log"
-
-mapfile -d '' files < <(
-    find "$PWD" -type f -name "*.flac" ! -name "*.fixed.flac" -print0 | sort -z
-)
-
-total=${#files[@]}
-i=0
-
-for f in "${files[@]}"; do
-    i=$((i+1))
-
-    artist=$(basename "$(dirname "$(dirname "$f")")")
-    album=$(basename "$(dirname "$f")")
-    track=$(basename "$f" .flac)
-
-    label="$artist-$album-$track"
-
-    err=$(ffmpeg \
-        -nostdin \
-        -nostats \
-        -loglevel error \
-        -i "$f" \
-        -map_metadata 0 \
-        -c copy \
-        "${f}.fixed.flac" \
-        -y 2>&1 >/dev/null)
-
-    rc=$?
-
-    if [ $rc -ne 0 ] || [ -n "$err" ]; then
-
-        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-
-        rm -f "${f}.fixed.flac"
-
-        echo "FAIL [$i/$total] $label"
-
-        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-            >> "$LOGDIR/ffmpeg_errors.log"
-
-    else
-
-        mv "${f}.fixed.flac" "$f"
-
-        echo "OK [$i/$total] $label"
-
-    fi
-
-done | tee "$LOGDIR/step3_run.log"
+    #!/usr/bin/env bash
+    #Step 3 – Strip Invalid Metadata Headers
+    
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    : > "$LOGDIR/ffmpeg_errors.log"
+    
+    mapfile -d '' files < <(
+        find "$PWD" -type f -name "*.flac" ! -name "*.fixed.flac" -print0 | sort -z
+    )
+    
+    total=${#files[@]}
+    i=0
+    
+    for f in "${files[@]}"; do
+        i=$((i+1))
+    
+        artist=$(basename "$(dirname "$(dirname "$f")")")
+        album=$(basename "$(dirname "$f")")
+        track=$(basename "$f" .flac)
+    
+        label="$artist-$album-$track"
+    
+        err=$(ffmpeg \
+            -nostdin \
+            -nostats \
+            -loglevel error \
+            -i "$f" \
+            -map_metadata 0 \
+            -c copy \
+            "${f}.fixed.flac" \
+            -y 2>&1 >/dev/null)
+    
+        rc=$?
+    
+        if [ $rc -ne 0 ] || [ -n "$err" ]; then
+    
+            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+    
+            rm -f "${f}.fixed.flac"
+    
+            echo "FAIL [$i/$total] $label"
+    
+            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
+                >> "$LOGDIR/ffmpeg_errors.log"
+    
+        else
+    
+            mv "${f}.fixed.flac" "$f"
+    
+            echo "OK [$i/$total] $label"
+    
+        fi
+    
+    done | tee "$LOGDIR/step3_run.log"
 
 ```
 --- Bash Script Step 3 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -547,20 +573,20 @@ After the rebuild completes, separate successful and failed results:
 --- Bash Script Results 3 Start ---
 ```bash
 
-LOGDIR="$HOME/flac_logs"
-
-grep '^OK' "$LOGDIR/step3_run.log" \
-    > "$LOGDIR/step3_oks.log"
-
-grep '^FAIL' "$LOGDIR/step3_run.log" \
-    > "$LOGDIR/step3_fails.log"
-
-echo "Step 3 OKs: $(wc -l < "$LOGDIR/step3_oks.log")  FAILs: $(wc -l < "$LOGDIR/step3_fails.log")"
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step3_run.log" \
+        > "$LOGDIR/step3_oks.log"
+    
+    grep '^FAIL' "$LOGDIR/step3_run.log" \
+        > "$LOGDIR/step3_fails.log"
+    
+    echo "Step 3 OKs: $(wc -l < "$LOGDIR/step3_oks.log")  FAILs: $(wc -l < "$LOGDIR/step3_fails.log")"
 
 ```
 --- Bash Script Results 3 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -569,18 +595,18 @@ View the generated reports:
 --- Bash Script Cat 3 Start ---
 ```bash
 
-cat "$LOGDIR/ffmpeg_errors.log"
-
-cat "$LOGDIR/step3_run.log"
-
-cat "$LOGDIR/step3_oks.log"
-
-cat "$LOGDIR/step3_fails.log"
+    cat "$LOGDIR/ffmpeg_errors.log"
+    
+    cat "$LOGDIR/step3_run.log"
+    
+    cat "$LOGDIR/step3_oks.log"
+    
+    cat "$LOGDIR/step3_fails.log"
 
 ```
 --- Bash Script Cat 3 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -620,58 +646,58 @@ No files are modified during this step.
 
 This is a verification step only.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 4 Start ---
 ```bash
 
-#!/usr/bin/env bash
-#Step 4 – Repeat Step 1 Integrity Test
-
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-: > "$LOGDIR/flac_test_errors_step4.log"
-
-mapfile -d '' files < <(
-    find "$PWD" -type f -name "*.flac" -print0 | sort -z
-)
-
-total=${#files[@]}
-i=0
-
-for f in "${files[@]}"; do
-    i=$((i+1))
-
-    artist=$(basename "$(dirname "$(dirname "$f")")")
-    album=$(basename "$(dirname "$f")")
-    track=$(basename "$f" .flac)
-
-    label="$artist-$album-$track"
-
-    err=$(flac -t "$f" 2>&1 >/dev/null)
-    rc=$?
-
-    if [ $rc -ne 0 ]; then
-
-        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-
-        echo "FAIL [$i/$total] $label"
-
-        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-            >> "$LOGDIR/flac_test_errors_step4.log"
-
-    else
-
-        echo "OK [$i/$total] $label"
-
-    fi
-
-done | tee "$LOGDIR/step4_run.log"
+    #!/usr/bin/env bash
+    #Step 4 – Repeat Step 1 Integrity Test
+    
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    : > "$LOGDIR/flac_test_errors_step4.log"
+    
+    mapfile -d '' files < <(
+        find "$PWD" -type f -name "*.flac" -print0 | sort -z
+    )
+    
+    total=${#files[@]}
+    i=0
+    
+    for f in "${files[@]}"; do
+        i=$((i+1))
+    
+        artist=$(basename "$(dirname "$(dirname "$f")")")
+        album=$(basename "$(dirname "$f")")
+        track=$(basename "$f" .flac)
+    
+        label="$artist-$album-$track"
+    
+        err=$(flac -t "$f" 2>&1 >/dev/null)
+        rc=$?
+    
+        if [ $rc -ne 0 ]; then
+    
+            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+    
+            echo "FAIL [$i/$total] $label"
+    
+            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
+                >> "$LOGDIR/flac_test_errors_step4.log"
+    
+        else
+    
+            echo "OK [$i/$total] $label"
+    
+        fi
+    
+    done | tee "$LOGDIR/step4_run.log"
 
 ```
 --- Bash Script Step 4 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -680,20 +706,20 @@ After the integrity test completes, separate successful and failed results:
 --- Bash Script Results 4 Start ---
 ```bash
 
-LOGDIR="$HOME/flac_logs"
-
-grep '^OK' "$LOGDIR/step4_run.log" \
-    > "$LOGDIR/step4_oks.log"
-
-grep '^FAIL' "$LOGDIR/step4_run.log" \
-    > "$LOGDIR/step4_fails.log"
-
-echo "Step 4 OKs: $(wc -l < "$LOGDIR/step4_oks.log")  FAILs: $(wc -l < "$LOGDIR/step4_fails.log")"
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step4_run.log" \
+        > "$LOGDIR/step4_oks.log"
+    
+    grep '^FAIL' "$LOGDIR/step4_run.log" \
+        > "$LOGDIR/step4_fails.log"
+    
+    echo "Step 4 OKs: $(wc -l < "$LOGDIR/step4_oks.log")  FAILs: $(wc -l < "$LOGDIR/step4_fails.log")"
 
 ```
 --- Bash Script Results 4 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -702,18 +728,18 @@ View the generated reports:
 --- Bash Script Cat 4 Start ---
 ```bash
 
-cat "$LOGDIR/flac_test_errors_step4.log"
-
-cat "$LOGDIR/step4_run.log"
-
-cat "$LOGDIR/step4_oks.log"
-
-cat "$LOGDIR/step4_fails.log"
+    cat "$LOGDIR/flac_test_errors_step4.log"
+    
+    cat "$LOGDIR/step4_run.log"
+    
+    cat "$LOGDIR/step4_oks.log"
+    
+    cat "$LOGDIR/step4_fails.log"
 
 ```
 --- Bash Script Cat 4 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -756,100 +782,101 @@ No audio is modified or re-encoded during this process.
 
 The calculation is performed at the album level to preserve the intended relationship between tracks within an album.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 5 Start ---
 ```bash
 
-#!/usr/bin/env bash
-# Step 5 – Reapply ReplayGain (moOde Audio Standard)
-
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-: > "$LOGDIR/loudgain_errors.log"
-: > "$LOGDIR/step5_run.log"
-
-# Supported audio extensions
-SUPPORTED_EXTS=(flac mp3 m4a ogg opus mp4 aac ape wv mpc spx)
-
-# 1. Gather and sort directories by path (Artist/Album) case-insensitively
-mapfile -d '' dirs < <(find "$PWD" -type d -print0 | LC_ALL=C sort -f -z)
-
-# 2. Calculate total folders containing supported audio files
-total=0
-for d in "${dirs[@]}"; do
-    shopt -s nocaseglob nullglob
-    files=(
-        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg 
-        "$d"/*.opus "$d"/*.mp4 "$d"/*.aac "$d"/*.ape 
-        "$d"/*.wv   "$d"/*.mpc "$d"/*.spx
-    )
-    shopt -u nocaseglob nullglob
-
-    if [ ${#files[@]} -gt 0 ]; then
-        total=$((total + 1))
-    fi
-done
-
-i=0
-
-# 3. Process each directory in Artist/Album order
-for d in "${dirs[@]}"; do
-    shopt -s nocaseglob nullglob
-    files=(
-        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg 
-        "$d"/*.opus "$d"/*.mp4 "$d"/*.aac "$d"/*.ape 
-        "$d"/*.wv   "$d"/*.mpc "$d"/*.spx
-    )
-    shopt -u nocaseglob nullglob
-
-    if [ ${#files[@]} -gt 0 ]; then
-        i=$((i + 1))
-
-        artist=$(basename "$(dirname "$d")")
-        album=$(basename "$d")
-        label="$artist - $album"
-
-        # Line 1: Header output
-        echo "OK [$i/$total] $label" | tee -a "$LOGDIR/step5_run.log"
-
-        # Process each audio format separately to prevent TagLib container errors
-        for ext in "${SUPPORTED_EXTS[@]}"; do
-            shopt -s nocaseglob nullglob
-            group=("$d"/*."$ext")
-            shopt -u nocaseglob nullglob
-
-            if [ ${#group[@]} -gt 0 ]; then
-                # Sort format group naturally
-                mapfile -d '' group_sorted < <(printf '%s\0' "${group[@]}" | LC_ALL=C sort -f -z -V)
-
-                # Option A: Run loudgain live directly to terminal (moOde standard -s e -L)
-                loudgain -a -k -s e -L -- "${group_sorted[@]}"
-                rc=$?
-
-                # Handle failure if loudgain returns a non-zero exit code
-                if [ $rc -ne 0 ]; then
-                    echo "FAIL [$i/$total] $label [.$ext]" | tee -a "$LOGDIR/step5_run.log"
-
-                    tracklist=""
-                    n=0
-                    for f in "${group_sorted[@]}"; do
-                        n=$((n + 1))
-                        tracklist="$tracklist $n=$(basename "$f")"
-                    done
-
-                    echo "[$i/$total] ERROR (exit $rc): $label [.$ext] :: $d :: tracks:$tracklist" \
-                        >> "$LOGDIR/loudgain_errors.log"
+    #!/usr/bin/env bash
+    # Step 5 – Reapply ReplayGain (moOde Audio Standard)
+    
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    : > "$LOGDIR/loudgain_errors.log"
+    : > "$LOGDIR/step5_run.log"
+    
+    # Supported audio extensions
+    SUPPORTED_EXTS=(flac mp3 m4a ogg opus mp4 aac ape wv mpc spx)
+    
+    # 1. Gather and sort directories by path (Artist/Album) case-insensitively
+    mapfile -d '' dirs < <(find "$PWD" -type d -print0 | LC_ALL=C sort -f -z)
+    
+    # 2. Calculate total folders containing supported audio files
+    total=0
+    for d in "${dirs[@]}"; do
+        shopt -s nocaseglob nullglob
+        files=(
+            "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg 
+            "$d"/*.opus "$d"/*.mp4 "$d"/*.aac "$d"/*.ape 
+            "$d"/*.wv   "$d"/*.mpc "$d"/*.spx
+        )
+        shopt -u nocaseglob nullglob
+    
+        if [ ${#files[@]} -gt 0 ]; then
+            total=$((total + 1))
+        fi
+    done
+    
+    i=0
+    
+    # 3. Process each directory in Artist/Album order
+    for d in "${dirs[@]}"; do
+        shopt -s nocaseglob nullglob
+        files=(
+            "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg 
+            "$d"/*.opus "$d"/*.mp4 "$d"/*.aac "$d"/*.ape 
+            "$d"/*.wv   "$d"/*.mpc "$d"/*.spx
+        )
+        shopt -u nocaseglob nullglob
+    
+        if [ ${#files[@]} -gt 0 ]; then
+            i=$((i + 1))
+    
+            artist=$(basename "$(dirname "$d")")
+            album=$(basename "$d")
+            label="$artist - $album"
+    
+            # Line 1: Header output
+            echo "OK [$i/$total] $label" | tee -a "$LOGDIR/step5_run.log"
+    
+            # Process each audio format separately to prevent TagLib container errors
+            for ext in "${SUPPORTED_EXTS[@]}"; do
+                shopt -s nocaseglob nullglob
+                group=("$d"/*."$ext")
+                shopt -u nocaseglob nullglob
+    
+                if [ ${#group[@]} -gt 0 ]; then
+                    # Sort format group naturally
+                    mapfile -d '' group_sorted < <(printf '%s\0' "${group[@]}" | LC_ALL=C sort -f -z -V)
+    
+                    # Option A: Run loudgain live directly to terminal (moOde standard -s e -L)
+                    loudgain -a -k -s e -L -- "${group_sorted[@]}"
+                    rc=$?
+    
+                    # Handle failure if loudgain returns a non-zero exit code
+                    if [ $rc -ne 0 ]; then
+                        echo "FAIL [$i/$total] $label [.$ext]" | tee -a "$LOGDIR/step5_run.log"
+    
+                        tracklist=""
+                        n=0
+                        for f in "${group_sorted[@]}"; do
+                            n=$((n + 1))
+                            tracklist="$tracklist $n=$(basename "$f")"
+                        done
+    
+                        echo "[$i/$total] ERROR (exit $rc): $label [.$ext] :: $d :: tracks:$tracklist" \
+                            >> "$LOGDIR/loudgain_errors.log"
+                    fi
                 fi
-            fi
-        done
-        echo ""
-    fi
-done
+            done
+            echo ""
+        fi
+    done
 
 ```
 --- Bash Script Step 5 End ---
--------------------------------------------------------------------
+
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -858,20 +885,20 @@ After ReplayGain processing completes, separate successful and failed results:
 --- Bash Script Results 5 Start ---
 ```bash
 
-LOGDIR="$HOME/flac_logs"
-
-grep '^OK' "$LOGDIR/step5_run.log" \
-    > "$LOGDIR/step5_oks.log"
-
-grep '^FAIL' "$LOGDIR/step5_run.log" \
-    > "$LOGDIR/step5_fails.log"
-
-echo "Step 5 OKs: $(wc -l < "$LOGDIR/step5_oks.log")  FAILs: $(wc -l < "$LOGDIR/step5_fails.log")"
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step5_run.log" \
+        > "$LOGDIR/step5_oks.log"
+    
+    grep '^FAIL' "$LOGDIR/step5_run.log" \
+        > "$LOGDIR/step5_fails.log"
+    
+    echo "Step 5 OKs: $(wc -l < "$LOGDIR/step5_oks.log")  FAILs: $(wc -l < "$LOGDIR/step5_fails.log")"
 
 ```
 --- Bash Script Results 5 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -880,18 +907,18 @@ View the generated reports:
 --- Bash Script Cat 5 Start ---
 ```bash
 
-cat "$LOGDIR/loudgain_errors.log"
-
-cat "$LOGDIR/step5_run.log"
-
-cat "$LOGDIR/step5_oks.log"
-
-cat "$LOGDIR/step5_fails.log"
+    cat "$LOGDIR/loudgain_errors.log"
+    
+    cat "$LOGDIR/step5_run.log"
+    
+    cat "$LOGDIR/step5_oks.log"
+    
+    cat "$LOGDIR/step5_fails.log"
 
 ```
 --- Bash Script Cat 5 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -931,58 +958,58 @@ No files are modified during this step.
 
 This is a verification step only.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 6 Start ---
 ```bash
 
-#!/usr/bin/env bash
-#Step 6 – Repeat Step 1 Integrity Test
-
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-: > "$LOGDIR/flac_test_errors_step6.log"
-
-mapfile -d '' files < <(
-    find "$PWD" -type f -name "*.flac" -print0 | sort -z
-)
-
-total=${#files[@]}
-i=0
-
-for f in "${files[@]}"; do
-    i=$((i+1))
-
-    artist=$(basename "$(dirname "$(dirname "$f")")")
-    album=$(basename "$(dirname "$f")")
-    track=$(basename "$f" .flac)
-
-    label="$artist-$album-$track"
-
-    err=$(flac -t "$f" 2>&1 >/dev/null)
-    rc=$?
-
-    if [ $rc -ne 0 ]; then
-
-        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-
-        echo "FAIL [$i/$total] $label"
-
-        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-            >> "$LOGDIR/flac_test_errors_step6.log"
-
-    else
-
-        echo "OK [$i/$total] $label"
-
-    fi
-
-done | tee "$LOGDIR/step6_run.log"
+    #!/usr/bin/env bash
+    # Step 6 – Repeat Step 1 Integrity Test
+    
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    : > "$LOGDIR/flac_test_errors_step6.log"
+    
+    mapfile -d '' files < <(
+        find "$PWD" -type f -name "*.flac" -print0 | sort -z
+    )
+    
+    total=${#files[@]}
+    i=0
+    
+    for f in "${files[@]}"; do
+        i=$((i+1))
+    
+        artist=$(basename "$(dirname "$(dirname "$f")")")
+        album=$(basename "$(dirname "$f")")
+        track=$(basename "$f" .flac)
+    
+        label="$artist-$album-$track"
+    
+        err=$(flac -t "$f" 2>&1 >/dev/null)
+        rc=$?
+    
+        if [ $rc -ne 0 ]; then
+    
+            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+    
+            echo "FAIL [$i/$total] $label"
+    
+            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
+                >> "$LOGDIR/flac_test_errors_step6.log"
+    
+        else
+    
+            echo "OK [$i/$total] $label"
+    
+        fi
+    
+    done | tee "$LOGDIR/step6_run.log"
 
 ```
 --- Bash Script Step 6 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -991,20 +1018,20 @@ After the integrity test completes, separate successful and failed results:
 --- Bash Script Results 6 Start ---
 ```bash
 
-LOGDIR="$HOME/flac_logs"
-
-grep '^OK' "$LOGDIR/step6_run.log" \
-    > "$LOGDIR/step6_oks.log"
-
-grep '^FAIL' "$LOGDIR/step6_run.log" \
-    > "$LOGDIR/step6_fails.log"
-
-echo "Step 6 OKs: $(wc -l < "$LOGDIR/step6_oks.log")  FAILs: $(wc -l < "$LOGDIR/step6_fails.log")"
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step6_run.log" \
+        > "$LOGDIR/step6_oks.log"
+    
+    grep '^FAIL' "$LOGDIR/step6_run.log" \
+        > "$LOGDIR/step6_fails.log"
+    
+    echo "Step 6 OKs: $(wc -l < "$LOGDIR/step6_oks.log")  FAILs: $(wc -l < "$LOGDIR/step6_fails.log")"
 
 ```
 --- Bash Script Results 6 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -1013,18 +1040,18 @@ View the generated reports:
 --- Bash Script Cat 6 Start ---
 ```bash
 
-cat "$LOGDIR/flac_test_errors_step6.log"
-
-cat "$LOGDIR/step6_run.log"
-
-cat "$LOGDIR/step6_oks.log"
-
-cat "$LOGDIR/step6_fails.log"
+    cat "$LOGDIR/flac_test_errors_step6.log"
+    
+    cat "$LOGDIR/step6_run.log"
+    
+    cat "$LOGDIR/step6_oks.log"
+    
+    cat "$LOGDIR/step6_fails.log"
 
 ```
 --- Bash Script Cat 6 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -1065,41 +1092,41 @@ This step:
 
 This step does not modify the audio data or FLAC metadata.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 7 Start ---
 ```bash
 
-#!/usr/bin/env bash
-#Step 7 – Remove Loose Files
-
-LOGDIR="$HOME/flac_logs"
-mkdir -p "$LOGDIR"
-
-echo "Loose file cleanup started"
-
-find "$PWD" \
-    -type f \
-    \( \
-        -name "*.fixed.flac" \
-        -o -name "*.tmp" \
-        -o -name "*.temp" \
-        -o -name "*~" \
-    \) \
-    -print | tee "$LOGDIR/step7_removed_files.log"
-
-while IFS= read -r f; do
-
-    rm -f "$f"
-
-done < "$LOGDIR/step7_removed_files.log"
-
-echo "Loose file cleanup completed"
-
+    #!/usr/bin/env bash
+    #Step 7 – Remove Loose Files
+    
+    LOGDIR="$HOME/flac_logs"
+    mkdir -p "$LOGDIR"
+    
+    echo "Loose file cleanup started"
+    
+    find "$PWD" \
+        -type f \
+        \( \
+            -name "*.fixed.flac" \
+            -o -name "*.tmp" \
+            -o -name "*.temp" \
+            -o -name "*~" \
+        \) \
+        -print | tee "$LOGDIR/step7_removed_files.log"
+    
+    while IFS= read -r f; do
+    
+        rm -f "$f"
+    
+    done < "$LOGDIR/step7_removed_files.log"
+    
+    echo "Loose file cleanup completed"
+    
 ```
 --- Bash Script Step 7 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -1115,7 +1142,7 @@ cat "$LOGDIR/step7_removed_files.log"
 ```
 --- Bash Script Cat 7 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -1154,7 +1181,7 @@ No files are modified during this step.
 
 This is a verification step only.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script Step 8 Start ---
 ```bash
@@ -1205,7 +1232,7 @@ done | tee "$LOGDIR/step8_run.log"
 ```
 --- Bash Script Step 8 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -1227,7 +1254,7 @@ echo "Step 8 OKs: $(wc -l < "$LOGDIR/step8_oks.log")  FAILs: $(wc -l < "$LOGDIR/
 ```
 --- Bash Script Results 8 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -1247,7 +1274,7 @@ cat "$LOGDIR/step8_fails.log"
 ```
 --- Bash Script Cat 8 End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -1270,7 +1297,7 @@ Files that continue to fail should be reviewed before archival storage. Addition
 
 The following procedures are not required for a standard library cleanup but may be necessary for resolving stubborn errors, standardizing visual presentation, or preparing the library for long-term preservation.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 ## 13a. Strip Problematic Metadata
 
@@ -1371,7 +1398,7 @@ done | tee "$LOGDIR/step13a_run.log"
 ```
 --- Bash Script for 13a End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -1393,7 +1420,7 @@ echo "Step 13a FIXED: $(wc -l < "$LOGDIR/step13a_fixed.log")  FAILs: $(wc -l < "
 ```
 --- Bash Script Results for 13a End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -1413,7 +1440,7 @@ cat "$LOGDIR/step13a_fails.log"
 ```
 --- Bash Script Cat for 13a End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -1429,7 +1456,7 @@ A successful run produces:
 
 After running this on stubborn files, you should run the integrity test (flac -t) on them again. If they pass, the corruption was isolated to a non-audio metadata block.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 ## 13b. Normalize Album Artwork
 
@@ -1452,7 +1479,7 @@ This step:
 * Leaves the audio data completely unchanged.
 * Skips directories that do not contain a recognized standard image file.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 --- Bash Script for 13b Start ---
 ```bash
@@ -1551,7 +1578,7 @@ done | tee "$LOGDIR/step13b_run.log"
 ```
 --- Bash Script for 13b End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -1570,7 +1597,7 @@ echo "Step 13b OKs: $(wc -l < "$LOGDIR/step13b_oks.log")  FAILs: $(wc -l < "$LOG
 ```
 --- Bash Script Results for 13b End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -1587,7 +1614,7 @@ cat "$LOGDIR/step13b_fails.log"
 ```
 --- Bash Script Cat for 13b End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Expected Results
 
@@ -1600,7 +1627,7 @@ A successful run produces:
 
 Albums without a cover.jpg or folder.jpg are simply ignored by this script. To process them, place an appropriately sized JPEG in their directory and re-run the script.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 ## 13c. Deep Repair via Decode/Re-encode (Last Resort)
 
@@ -1718,7 +1745,7 @@ done | tee "$LOGDIR/step13c_run.log"
 ```
 --- Bash Script for 13c End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Separate Results
 
@@ -1744,7 +1771,7 @@ echo "Step 13c OKs: $(wc -l < "$LOGDIR/step13c_oks.log")  FIXED-CLEAN: $(wc -l <
 ```
 --- Bash Script Results for 13c End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Review Results
 
@@ -1764,7 +1791,7 @@ cat "$LOGDIR/step13c_fails.log"
 ```
 --- Bash Script Cat for 13c End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 14. Generate Checksums
 
@@ -1802,7 +1829,7 @@ This section provides supplementary materials to support the primary workflow. I
 
 -- Common Issues and Fixes:
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
    1. FLAC Decoding Errors (e.g., Unknown Total Samples)
 
@@ -1820,7 +1847,7 @@ ffmpeg -i "broken.flac" -c:a flac "fixed.flac"
 
 Once you verify that fixed.flac plays correctly and passes a flac -t check, you can replace the broken original.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
    2. Permission Denied Errors
 
@@ -1837,13 +1864,13 @@ chmod -R u+rw /path/to/your/music/library
 ```
 --- Bash Script End ---
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
    3. Checksum Verification Failures
 
 If you ever run sha256sum -c checksums.sha256 in an album directory and it reports a mismatch, it means the audio file has been modified or corrupted (bit rot) since the original checksum was generated. Do not re-run the checksum generation script to "fix" the error — that will just validate the corrupted state. Instead, delete the corrupted file from your master library and restore a pristine copy from your rsync backup drive.
 
---------------------------------
+\-------------------------------------------------------------------
 
 -- Log File Reference & Understanding Your Log Files
 
@@ -1863,13 +1890,13 @@ The logging system uses a consistent naming convention across all processing ste
   4. [step_name]_errors.log
     Contains the detailed standard error (stderr) output from the specific command-line utilities (like ffmpeg, loudgain, or metaflac). When an album shows up in the fails.log, you can check this error file to see exactly why it failed (e.g., "file not found," "malformed metadata," "permission denied").
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- General Cleanup
 
 Once you have reviewed the final logs, verified that your master library is fully processed, and completed your rsync transfer to the external backup drive, you can safely delete the entire flac_logs directory. It is completely independent of the audio files and is no longer needed once the project is finished.
 
--------------------------------------------------------------------
+\-------------------------------------------------------------------
 
 -- Disclaimer
 
