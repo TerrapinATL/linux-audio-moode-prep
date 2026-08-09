@@ -1457,7 +1457,6 @@ A successful run produces:
 After running this on stubborn files, you should run the integrity test (flac -t) on them again. If they pass, the corruption was isolated to a non-audio metadata block.
 
 \-------------------------------------------------------------------
-
 ## 13b. Normalize Album Artwork
 
 -- Purpose
@@ -1490,71 +1489,109 @@ This step:
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
 : > "$LOGDIR/artwork_errors.log"
-find_art_file() {
-    local dir="$1"
-    local f
-    f=$(find "$dir" -maxdepth 1 -type f -iname "cover.jpg" -print -quit)
-    if [ -n "$f" ]; then
-        printf '%s' "$f"
-        return
-    fi
-    f=$(find "$dir" -maxdepth 1 -type f -iname "folder.jpg" -print -quit)
-    printf '%s' "$f"
-}
+
 mapfile -d '' dirs < <(
     find "$PWD" -type d -print0 | sort -z
 )
+
 total=0
+
 for d in "${dirs[@]}"; do
-    art_file=$(find_art_file "$d")
+    art_file=""
+
+    if [ -f "$d/cover.jpg" ]; then
+        art_file="$d/cover.jpg"
+    elif [ -f "$d/folder.jpg" ]; then
+        art_file="$d/folder.jpg"
+    fi
+
     if [ -n "$art_file" ]; then
         shopt -s nullglob
         flac_files=("$d"/*.flac)
         shopt -u nullglob
+
         if [ ${#flac_files[@]} -gt 0 ]; then
             total=$((total+1))
         fi
     fi
 done
+
 i=0
+
 for d in "${dirs[@]}"; do
-    art_file=$(find_art_file "$d")
+    art_file=""
+
+    if [ -f "$d/cover.jpg" ]; then
+        art_file="$d/cover.jpg"
+    elif [ -f "$d/folder.jpg" ]; then
+        art_file="$d/folder.jpg"
+    fi
+
     if [ -n "$art_file" ]; then
         shopt -s nullglob
         flac_files=("$d"/*.flac)
         shopt -u nullglob
+
         if [ ${#flac_files[@]} -gt 0 ]; then
             i=$((i+1))
+
             artist=$(basename "$(dirname "$d")")
             album=$(basename "$d")
             label="$artist-$album"
+
             error_found=0
+
             for f in "${flac_files[@]}"; do
                 rmerr=$(metaflac --remove-art "$f" 2>&1 >/dev/null)
                 rmrc=$?
+
                 if [ $rmrc -ne 0 ]; then
                     error_found=1
                     rmflat=$(echo "$rmerr" | tr '\n' ' ' | tr -s ' ')
+
                     echo "[$i/$total] ERROR (exit $rmrc, remove-art): $label :: $(basename "$f") :: ${rmflat:-no stderr output}" \
                         >> "$LOGDIR/artwork_errors.log"
                 fi
+
                 err=$(metaflac --import-picture-from="$art_file" "$f" 2>&1 >/dev/null)
                 rc=$?
+
                 if [ $rc -ne 0 ]; then
                     error_found=1
                     flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+
                     echo "[$i/$total] ERROR (exit $rc): $label :: $(basename "$f") :: ${flat:-no stderr output}" \
                         >> "$LOGDIR/artwork_errors.log"
                 fi
             done
+
             if [ $error_found -eq 0 ]; then
-                printf '%-6s [%d/%d] %s (Embedded %s)\n' "OK" "$i" "$total" "$label" "$(basename "$art_file")"
+                echo "OK [$i/$total] $label (Embedded $(basename "$art_file"))"
             else
-                printf '%-6s [%d/%d] %s\n' "ERROR" "$i" "$total" "$label"
+                echo "FAIL [$i/$total] $label"
             fi
         fi
     fi
 done | tee "$LOGDIR/step13b_run.log"
+
+```
+--- Bash Script for 13b End ---
+
+\-------------------------------------------------------------------
+
+-- Separate Results
+
+After the artwork normalization completes, separate successful and failed results:
+
+--- Bash Script Results for 13b Start ---
+```bash
+
+LOGDIR="$HOME/flac_logs"
+
+grep '^OK' "$LOGDIR/step13b_run.log" > "$LOGDIR/step13b_oks.log"
+grep '^FAIL' "$LOGDIR/step13b_run.log" > "$LOGDIR/step13b_fails.log"
+
+echo "Step 13b OKs: $(wc -l < "$LOGDIR/step13b_oks.log")  FAILs: $(wc -l < "$LOGDIR/step13b_fails.log")"
 
 ```
 --- Bash Script Results for 13b End ---
