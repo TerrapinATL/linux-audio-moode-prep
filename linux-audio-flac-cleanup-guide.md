@@ -1628,13 +1628,181 @@ Albums without a cover.jpg or folder.jpg are simply ignored by this script. To p
 
 \-------------------------------------------------------------------
 
-## 13c. Deep Repair via Decode/Re-encode (Last Resort)
+## 13c. Update Album Artwork Embeds (Moode Compatible Formats except Wav)
 
 --- Bash Script for 13c Start ---
 ```bash
 
 #!/usr/bin/env bash
-#13c. Deep Repair via Decode/Re-encode (Last Resort)
+# 13c. Update Album Artwork Embeds (Moode Compatible Formats except Wav)
+
+LOGDIR="$HOME/flac_logs"
+mkdir -p "$LOGDIR"
+: > "$LOGDIR/artwork_embedding_errors.log"
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ERROR: ffmpeg is required to process non-FLAC formats."
+    exit 1
+fi
+
+HAS_METAFLAC=0
+if command -v metaflac >/dev/null 2>&1; then
+    HAS_METAFLAC=1
+fi
+
+mapfile -d '' dirs < <(
+    find "$PWD" -type f \( \
+        -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
+        -iname "*.mp4"  -o -iname "*.ogg" -o -iname "*.opus" -o \
+        -iname "*.aiff" -o -iname "*.aif" -o -iname "*.ape"  -o \
+        -iname "*.dsf" \
+    \) -printf '%h\0' | sort -u -z
+)
+
+total=${#dirs[@]}
+i=0
+
+if [ "$total" -eq 0 ]; then
+    echo "No directories with supported audio files found."
+    exit 0
+fi
+
+for d in "${dirs[@]}"; do
+    i=$((i + 1))
+    
+    parent_dir="${d%/*}"
+    artist="${parent_dir##*/}"
+    album="${d##*/}"
+    label="$artist - $album"
+    error_found=0
+
+    art_file=""
+    if [ -s "$d/Cover.jpg" ]; then
+        art_file="$d/Cover.jpg"
+    elif [ -s "$d/cover.jpg" ]; then
+        art_file="$d/cover.jpg"
+    elif [ -s "$d/folder.jpg" ]; then
+        art_file="$d/folder.jpg"
+    fi
+
+    if [ -z "$art_file" ]; then
+        echo "ERROR [$i/$total] $label :: Missing standard image file"
+        echo "[$i/$total] ERROR: $label :: No Cover.jpg, cover.jpg, or folder.jpg found" >> "$LOGDIR/artwork_embedding_errors.log"
+        continue
+    fi
+
+    shopt -s nullglob nocaseglob
+    audio_files=(
+        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.mp4 \
+        "$d"/*.ogg  "$d"/*.opus "$d"/*.aiff "$d"/*.aif \
+        "$d"/*.ape  "$d"/*.dsf
+    )
+    shopt -u nullglob nocaseglob
+
+    mapfile -t audio_files < <(printf "%s\n" "${audio_files[@]}" | sort -u)
+
+    if [ ${#audio_files[@]} -eq 0 ]; then
+        echo "ERROR [$i/$total] $label :: No audio files found"
+        echo "[$i/$total] ERROR: $label :: Directory has no supported audio files" >> "$LOGDIR/artwork_embedding_errors.log"
+        continue
+    fi
+
+    for f in "${audio_files[@]}"; do
+        ext="${f##*.}"
+        ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+
+        if [[ "$ext_lower" == "flac" && $HAS_METAFLAC -eq 1 ]]; then
+            rmerr=$(metaflac --remove-art "$f" 2>&1)
+            rmrc=$?
+            if [ $rmrc -ne 0 ]; then
+                error_found=1
+                rmflat=$(echo "$rmerr" | tr '\n' ' ' | tr -s ' ')
+                echo "[$i/$total] ERROR (exit $rmrc, remove-art): $label :: ${f##*/} :: ${rmflat:-no stderr output}" \
+                    >> "$LOGDIR/artwork_embedding_errors.log"
+            fi
+
+            err=$(metaflac --import-picture-from="$art_file" "$f" 2>&1)
+            rc=$?
+            if [ $rc -ne 0 ]; then
+                error_found=1
+                flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                echo "[$i/$total] ERROR (exit $rc, import-art): $label :: ${f##*/} :: ${flat:-no stderr output}" \
+                    >> "$LOGDIR/artwork_embedding_errors.log"
+            fi
+        else
+            temp_file="$d/_temp_tagged.${ext_lower}"
+            rm -f "$temp_file" 2>/dev/null
+
+            err=$(ffmpeg -y -loglevel error -i "$f" -i "$art_file" \
+                -map 0:a -map 1 -c copy -disposition:v attached_pic "$temp_file" 2>&1)
+            rc=$?
+
+            if [ $rc -eq 0 ] && [ -s "$temp_file" ]; then
+                mv "$temp_file" "$f" 2>/dev/null
+            else
+                error_found=1
+                rm -f "$temp_file" 2>/dev/null
+                flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                echo "[$i/$total] ERROR (exit $rc, ffmpeg): $label :: ${f##*/} :: ${flat:-no stderr output}" \
+                    >> "$LOGDIR/artwork_embedding_errors.log"
+            fi
+        fi
+    done
+
+    if [ $error_found -eq 0 ]; then
+        echo "OK    [$i/$total] $label"
+    else
+        echo "ERROR [$i/$total] $label"
+    fi
+
+done | tee "$LOGDIR/step13c_all_formats_run.log"
+
+```
+--- Bash Script for 13c End ---
+
+\-------------------------------------------------------------------
+
+-- Separate Results
+
+--- Bash Script Results for 13c Start ---
+```bash
+
+LOGDIR="$HOME/flac_logs"
+
+grep '^OK' "$LOGDIR/step13c_all_formats_run.log" > "$LOGDIR/step13c_all_oks.log"
+grep '^ERROR' "$LOGDIR/step13c_all_formats_run.log" > "$LOGDIR/step13c_all_fails.log"
+
+echo "Step 13c Universal OKs: $(wc -l < "$LOGDIR/step13c_all_oks.log")  ERRORs: $(wc -l < "$LOGDIR/step13c_all_fails.log")"
+
+```
+--- Bash Script Results for 13c End ---
+
+\-------------------------------------------------------------------
+
+-- Review Results
+
+View the generated reports:
+
+--- Bash Script Cat for 13c Start ---
+```bash
+
+cat "$LOGDIR/artwork_embedding_errors.log"
+cat "$LOGDIR/step13c_all_formats_run.log"
+cat "$LOGDIR/step13c_all_oks.log"
+cat "$LOGDIR/step13c_all_fails.log"
+
+```
+--- Bash Script Cat for 13c End ---
+
+\-------------------------------------------------------------------
+
+## 13d. Deep Repair via Decode/Re-encode (Last Resort)
+
+--- Bash Script for 13c Start ---
+```bash
+
+#!/usr/bin/env bash
+#13d. Deep Repair via Decode/Re-encode (Last Resort)
 
 LOGDIR="$HOME/flac_logs"
 mkdir -p "$LOGDIR"
@@ -1739,36 +1907,36 @@ for f in "${files[@]}"; do
         echo "FIXED-CLEAN [$i/$total] $label"
     fi
 
-done | tee "$LOGDIR/step13c_run.log"
+done | tee "$LOGDIR/step13d_run.log"
 
 ```
---- Bash Script for 13c End ---
+--- Bash Script for 13d End ---
 
 \-------------------------------------------------------------------
 
 -- Separate Results
 
---- Bash Script Results for 13c Start ---
+--- Bash Script Results for 13d Start ---
 ```bash
 
 LOGDIR="$HOME/flac_logs"
 
-grep '^OK' "$LOGDIR/step13c_run.log" \
-    > "$LOGDIR/step13c_oks.log"
+grep '^OK' "$LOGDIR/step13d_run.log" \
+    > "$LOGDIR/step13d_oks.log"
 
-grep '^FIXED-CLEAN' "$LOGDIR/step13c_run.log" \
-    > "$LOGDIR/step13c_fixed_clean.log"
+grep '^FIXED-CLEAN' "$LOGDIR/step13d_run.log" \
+    > "$LOGDIR/step13d_fixed_clean.log"
 
-grep '^FIXED-REVIEW' "$LOGDIR/step13c_run.log" \
-    > "$LOGDIR/step13c_fixed_review.log"
+grep '^FIXED-REVIEW' "$LOGDIR/step13d_run.log" \
+    > "$LOGDIR/step13d_fixed_review.log"
 
-grep '^FAIL' "$LOGDIR/step13c_run.log" \
-    > "$LOGDIR/step13c_fails.log"
+grep '^FAIL' "$LOGDIR/step13d_run.log" \
+    > "$LOGDIR/step13d_fails.log"
 
-echo "Step 13c OKs: $(wc -l < "$LOGDIR/step13c_oks.log")  FIXED-CLEAN: $(wc -l < "$LOGDIR/step13c_fixed_clean.log")  FIXED-REVIEW: $(wc -l < "$LOGDIR/step13c_fixed_review.log")  FAILs: $(wc -l < "$LOGDIR/step13c_fails.log")"
+echo "Step 13d OKs: $(wc -l < "$LOGDIR/step13d_oks.log")  FIXED-CLEAN: $(wc -l < "$LOGDIR/step13d_fixed_clean.log")  FIXED-REVIEW: $(wc -l < "$LOGDIR/step13d_fixed_review.log")  FAILs: $(wc -l < "$LOGDIR/step13d_fails.log")"
 
 ```
---- Bash Script Results for 13c End ---
+--- Bash Script Results for 13d End ---
 
 \-------------------------------------------------------------------
 
@@ -1776,19 +1944,19 @@ echo "Step 13c OKs: $(wc -l < "$LOGDIR/step13c_oks.log")  FIXED-CLEAN: $(wc -l <
 
 View the generated reports:
 
---- Bash Script Cat for 13c Start ---
+--- Bash Script Cat for 13d Start ---
 ```bash
 
 cat "$LOGDIR/reencode_errors.log"
 cat "$LOGDIR/reencode_review.log"
-cat "$LOGDIR/step13c_run.log"
-cat "$LOGDIR/step13c_oks.log"
-cat "$LOGDIR/step13c_fixed_clean.log"
-cat "$LOGDIR/step13c_fixed_review.log"
-cat "$LOGDIR/step13c_fails.log"
+cat "$LOGDIR/step13d_run.log"
+cat "$LOGDIR/step13d_oks.log"
+cat "$LOGDIR/step13d_fixed_clean.log"
+cat "$LOGDIR/step13d_fixed_review.log"
+cat "$LOGDIR/step13d_fails.log"
 
 ```
---- Bash Script Cat for 13c End ---
+--- Bash Script Cat for 13d End ---
 
 \-------------------------------------------------------------------
 
