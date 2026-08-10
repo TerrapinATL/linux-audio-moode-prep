@@ -136,87 +136,92 @@ No files are modified during this step.
 --- Bash Script Step 1 Start ---
 ```bash
 
-    #!/usr/bin/env bash
-    # Step 1 – Multi-Format Audio Integrity Test
-    
-    LOGDIR="$HOME/flac_logs"
-    mkdir -p "$LOGDIR"
-    : > "$LOGDIR/audio_test_errors.log"
-    
-    # Search recursively for supported audio extensions
-    mapfile -d '' files < <(
-        find "$PWD" -type f \
-            \( \
-                -iname "*.flac" -o \
-                -iname "*.mp3"  -o \
-                -iname "*.m4a"  -o \
-                -iname "*.ogg"  -o \
-                -iname "*.opus" -o \
-                -iname "*.wav"  -o \
-                -iname "*.aiff" \
-            \) -print0 | sort -z
-    )
-    
-    total=${#files[@]}
-    i=0
-    
-    for f in "${files[@]}"; do
-        i=$((i+1))
-    
-        artist=$(basename "$(dirname "$(dirname "$f")")")
-        album=$(basename "$(dirname "$f")")
-        track=$(basename "$f")
-    
-        label="$artist-$album-$track"
-    
-        # Route verification by format
-        case "${f,,}" in
-            *.flac)
-                err=$(flac -s -t "$f" 2>&1 >/dev/null)
-                rc=$?
-                ;;
-            *)
-                err=$(ffmpeg -v error -i "$f" -f null - 2>&1)
-                # ffmpeg outputs error text on failure, check both exit code and output
-                if [ -n "$err" ]; then
-                    rc=1
-                else
-                    rc=0
-                fi
-                ;;
-        esac
-   
-        if [ $rc -ne 0 ]; then
-            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-            echo "FAIL [$i/$total] $label"
-            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-                >> "$LOGDIR/audio_test_errors.log"
-        else
-            echo "OK [$i/$total] $label"
-        fi
-    
-    done | tee "$LOGDIR/step1_run.log"
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 1 – Multi-Format Audio Integrity Test
+# ------------------------------------------------------------
 
+LOG_ROOT="$HOME/.logs/Linux_Audio_Folder_Level"
+GUIDE="Library_Cleanup"
+STEP="Step01_Integrity_Test"
 
+LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
 
-    LOGDIR="$HOME/flac_logs"
-    
-    grep '^OK' "$LOGDIR/step1_run.log" \
-        > "$LOGDIR/step1_oks.log"
-    
-    grep '^FAIL' "$LOGDIR/step1_run.log" \
-        > "$LOGDIR/step1_fails.log"
+mkdir -p "$LOG_DIR"
+find "$LOG_DIR" -type f -delete
 
-    echo "----------------------------------------"
-    
-    echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
-    echo "----------------------------------------"
+RUN_LOG="$LOG_DIR/step01_run.log"
+OK_LOG="$LOG_DIR/step01_oks.log"
+FAIL_LOG="$LOG_DIR/step01_fails.log"
+ERROR_LOG="$LOG_DIR/step01_errors.log"
+SUMMARY_LOG="$LOG_DIR/step01_summary.log"
 
-    cat "$LOGDIR/step1_fails.log"
+touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG"
 
-    echo "----------------------------------------"
-    echo "Step 1 – Initial Integrity Test"
-    echo "----------------------------------------"
+mapfile -d '' files < <(
+    find "$PWD" -type f \
+        \( \
+            -iname "*.flac" -o \
+            -iname "*.mp3"  -o \
+            -iname "*.m4a"  -o \
+            -iname "*.ogg"  -o \
+            -iname "*.opus" -o \
+            -iname "*.wav"  -o \
+            -iname "*.aiff" \
+        \) -print0 | sort -z
+)
+
+total=${#files[@]}
+i=0
+
+for f in "${files[@]}"; do
+
+    ((i++))
+    label="${f#"$PWD"/}"
+
+    case "${f,,}" in
+        *.flac)
+            err=$(flac -s -t "$f" 2>&1)
+            rc=$?
+            ;;
+        *)
+            err=$(ffmpeg -v error -i "$f" -f null - 2>&1)
+            rc=$?
+            ;;
+    esac
+
+    if [ $rc -eq 0 ]; then
+        echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OK_LOG"
+    else
+        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERROR_LOG"
+    fi
+
+done
+
+ok_count=$(grep -a -c "^OK" "$RUN_LOG")
+fail_count=$(grep -a -c "^FAIL" "$RUN_LOG")
+
+{
+echo "Step 1 Summary"
+echo "=============="
+echo
+echo "Guide      : $GUIDE"
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
+
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 1 – Initial Integrity Test"
+echo "----------------------------------------"
 
 ```
 --- Bash Script Step 1 End ---
