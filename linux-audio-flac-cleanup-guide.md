@@ -208,31 +208,12 @@ No files are modified during this step.
     
     echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
 
+    echo "----------------------------------------"
+    echo "Step 1 – Initial Integrity Test"
+    echo "----------------------------------------"
 
 ```
 --- Bash Script Step 1 End ---
-
-\-------------------------------------------------------------------
-
--- Separate Results
-
-After the test completes, separate successful and failed results:
-
---- Bash Script Results 1 Start ---
-```bash
-
-    LOGDIR="$HOME/flac_logs"
-    
-    grep '^OK' "$LOGDIR/step1_run.log" \
-        > "$LOGDIR/step1_oks.log"
-    
-    grep '^FAIL' "$LOGDIR/step1_run.log" \
-        > "$LOGDIR/step1_fails.log"
-    
-    echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
-
-```
---- Bash Script Results 1 End ---
 
 \-------------------------------------------------------------------
 
