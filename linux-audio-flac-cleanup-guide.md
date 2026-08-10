@@ -185,7 +185,7 @@ No files are modified during this step.
                 fi
                 ;;
         esac
-    
+   
         if [ $rc -ne 0 ]; then
             flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
             echo "FAIL [$i/$total] $label"
@@ -197,6 +197,7 @@ No files are modified during this step.
     
     done | tee "$LOGDIR/step1_run.log"
 
+    echo "----------------------------------------"
 
     LOGDIR="$HOME/flac_logs"
     
