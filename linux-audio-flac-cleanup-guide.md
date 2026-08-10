@@ -197,7 +197,7 @@ No files are modified during this step.
     
     done | tee "$LOGDIR/step1_run.log"
 
-    echo "----------------------------------------"
+
 
     LOGDIR="$HOME/flac_logs"
     
@@ -206,8 +206,13 @@ No files are modified during this step.
     
     grep '^FAIL' "$LOGDIR/step1_run.log" \
         > "$LOGDIR/step1_fails.log"
+
+    echo "----------------------------------------"
     
     echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
+    echo "----------------------------------------"
+
+    cat "$LOGDIR/step1_fails.log"
 
     echo "----------------------------------------"
     echo "Step 1 – Initial Integrity Test"
