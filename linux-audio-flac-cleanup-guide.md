@@ -197,6 +197,18 @@ No files are modified during this step.
     
     done | tee "$LOGDIR/step1_run.log"
 
+
+    LOGDIR="$HOME/flac_logs"
+    
+    grep '^OK' "$LOGDIR/step1_run.log" \
+        > "$LOGDIR/step1_oks.log"
+    
+    grep '^FAIL' "$LOGDIR/step1_run.log" \
+        > "$LOGDIR/step1_fails.log"
+    
+    echo "Step 1 OKs: $(wc -l < "$LOGDIR/step1_oks.log")  FAILs: $(wc -l < "$LOGDIR/step1_fails.log")"
+
+
 ```
 --- Bash Script Step 1 End ---
 
