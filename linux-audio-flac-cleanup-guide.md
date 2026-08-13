@@ -372,63 +372,169 @@ echo "Step 2A – File Discovery & Log Initialization
 --- Bash Script Step 2B Start ---
 ```bash
 
-    #!/usr/bin/env bash
-    # Step 2B: Tag Processing & Deduplication
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2B: Tag Processing & Deduplication
+# ------------------------------------------------------------
 
-    bash << 'EOF'
+LOG_ROOT="$HOME/.logs/Linux_Audio_Folder_Level"
+GUIDE="Library_Cleanup"
+STEP="Step02B_Dedup"
 
-    LOGDIR="$HOME/flac_logs"
-    ERR_LOG="$LOGDIR/tag_dedup_errors.log"
-    FIX_LOG="$LOGDIR/tag_dedup.log"
-    RUN_LOG="$LOGDIR/step2_run.log"
-    TARGET_LIST="/tmp/step2_targets.txt"
+LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
+
+# 1. Directory Setup & Cleanup (Template Standard)
+mkdir -p "$LOG_ROOT/$GUIDE"
+find "$LOG_DIR" -type f -delete 2>/dev/null || true
+mkdir -p "$LOG_DIR"
+
+# 2. Define Log Files (Template Standard)
+RUN_LOG="$LOG_DIR/step02b_run.log"
+OK_LOG="$LOG_DIR/step02b_oks.log"
+FAIL_LOG="$LOG_DIR/step02b_fails.log"
+ERROR_LOG="$LOG_DIR/step02b_errors.log"
+SUMMARY_LOG="$LOG_DIR/step02b_summary.log"
+FIX_LOG="$LOG_DIR/step02b_fixes.log"  # Optional: Additional log for fixes
+
+# 3. Initialize Log Files
+touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG" "$FIX_LOG"
+
+# 4. Target List
+TARGET_LIST="/tmp/step2_targets.txt"
+
+if [ ! -f "$TARGET_LIST" ] || [ ! -s "$TARGET_LIST" ]; then
+    echo "FAIL [0/0] No target list found or empty." | tee -a "$RUN_LOG" "$FAIL_LOG"
+    echo "Step 2B Summary" > "$SUMMARY_LOG"
+    echo "===============" >> "$SUMMARY_LOG"
+    echo "Error: No target files found in $TARGET_LIST" >> "$SUMMARY_LOG"
+    exit 1
+fi
+
+# 5. Load Files into Array (Safe for null-delimited)
+mapfile -d '' files < "$TARGET_LIST"
+total=${#files[@]}
+
+if [ "$total" -eq 0 ]; then
+    echo "FAIL [0/0] No target files to process." | tee -a "$RUN_LOG" "$FAIL_LOG"
+    {
+    echo "Step 2B Summary"
+    echo "==============="
+    echo "Guide      : $GUIDE"
+    echo "Step       : $STEP"
+    echo "Run Date   : $(date)"
+    echo "Total Found: 0"
+    echo "Result     : No files to process"
+    } > "$SUMMARY_LOG"
+    exit 0
+fi
+
+# 6. Initialize Counters (Outside loop to avoid subshell issues)
+i=0
+fixed_count=0
+ok_count=0
+fail_count=0
+
+# 7. Process Loop (No pipe to tee - use tee inside)
+for f in "${files[@]}"; do
+    ((i++))
     
-    mapfile -d '' files < "$TARGET_LIST"
-    total=${#files[@]}
-    [ "$total" -eq 0 ] && { echo "No target files to process."; exit 0; }
+    # Construct Label
+    filename=$(basename "$f")
+    track="${filename%.*}"
+    dir_path=$(dirname "$f")
+    album=$(basename "$dir_path")
+    artist=$(basename "$(dirname "$dir_path")")
     
-    i=0; fixed_count=0; ok_count=0; fail_count=0
+    if [ "$dir_path" = "$PWD" ]; then
+        label="$album-$track"
+    else
+        label="$artist-$album-$track"
+    fi
     
-    for f in "${files[@]}"; do
-        i=$((i+1))
-        filename=$(basename "$f"); track="${filename%.*}"
-        dir_path=$(dirname "$f"); album=$(basename "$dir_path"); artist=$(basename "$(dirname "$dir_path")")
-        [ "$dir_path" = "$PWD" ] && label="$album-$track" || label="$artist-$album-$track"
+    # Temporary Files
+    raw=$(mktemp)
+    dedup=$(mktemp)
     
-        raw=$(mktemp); dedup=$(mktemp)
-    
-        if ! err=$(metaflac --export-tags-to="$raw" "$f" 2>&1 >/dev/null); then
-            fail_count=$((fail_count+1))
-            echo "FAIL [$i/$total] $label"
-            echo "[$i/$total] ERROR: $label :: $f :: ${err:-Export failed}" >> "$ERR_LOG"
-            rm -f "$raw" "$dedup"; continue
-        fi
-    
-        [ -n "$(tail -c1 "$raw")" ] && echo "" >> "$raw"
-        before=$(grep -c '^' "$raw")
-    
-        awk -F'=' 'BEGIN{IGNORECASE=1}/^[^=]+=/ {key=toupper($1); val=substr($0,length($1)+2); pair=key"="val; if(!seen[pair]++) print $1"="val; next} {print}' "$raw" > "$dedup"
-        after=$(grep -c '^' "$dedup")
-    
-        if [ "$before" -ne "$after" ]; then
-            if metaflac --preserve-modtime --remove-all-tags --import-tags-from="$dedup" "$f" 2>&1 >/dev/null; then
-                fixed_count=$((fixed_count+1)); diff=$((before-after))
-                echo "FIXED [$i/$total] $label ($diff duplicate tag line(s) removed)"
-                echo "[$i/$total] FIXED $label ($diff duplicate line(s) removed)" >> "$FIX_LOG"
-            else
-                fail_count=$((fail_count+1))
-                echo "FAIL [$i/$total] $label"
-                echo "[$i/$total] ERROR: $label :: $f :: Import failed" >> "$ERR_LOG"
-            fi
-        else
-            ok_count=$((ok_count+1))
-            echo "OK [$i/$total] $label"
-        fi
+    # Export Tags
+    if ! metaflac --export-tags-to="$raw" "$f" 2>/dev/null; then
+        err_msg=$(tail -n 1 "$raw" 2>/dev/null || echo "Export failed")
+        fail_count=$((fail_count + 1))
+        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+        echo "[$i/$total] ERROR (metaflac): $label :: $f :: ${err_msg:-Unknown error}" >> "$ERROR_LOG"
         rm -f "$raw" "$dedup"
-    done | tee "$RUN_LOG"
+        continue
+    fi
     
-    echo "fixed_count=$fixed_count; ok_count=$ok_count; fail_count=$fail_count; total=$total" > /tmp/step2_stats.txt
-    EOF
+    # Ensure file ends with newline
+    [ -n "$(tail -c1 "$raw" 2>/dev/null)" ] && echo "" >> "$raw"
+    
+    before=$(wc -l < "$raw" | tr -d ' ')
+    
+    # Deduplicate tags (Case-insensitive key, keep first occurrence)
+    # Note: Adjust logic if specific dedup rules are needed
+    awk -F'=' '
+        BEGIN { IGNORECASE = 1 }
+        /^[^=]+=/ {
+            key = toupper($1)
+            val = substr($0, length($1) + 2)
+            pair = key "=" val
+            if (!seen[pair]++) {
+                print $0
+            }
+            next
+        }
+        { print }
+    ' "$raw" > "$dedup"
+    
+    after=$(wc -l < "$dedup" | tr -d ' ')
+    
+    if [ "$before" -ne "$after" ]; then
+        if metaflac --preserve-modtime --remove-all-tags --import-tags-from="$dedup" "$f" 2>/dev/null; then
+            diff=$((before - after))
+            fixed_count=$((fixed_count + 1))
+            echo "FIXED [$i/$total] $label ($diff duplicate tag line(s) removed)" | tee -a "$RUN_LOG" "$FIX_LOG"
+        else
+            fail_count=$((fail_count + 1))
+            echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+            echo "[$i/$total] ERROR (import): $label :: $f :: Tag import failed" >> "$ERROR_LOG"
+        fi
+    else
+        ok_count=$((ok_count + 1))
+        echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OK_LOG"
+    fi
+    
+    rm -f "$raw" "$dedup"
+done
+
+# 8. Generate Summary
+{
+echo "Step 2B Summary"
+echo "==============="
+echo
+echo "Guide      : $GUIDE"
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "OK         : $ok_count"
+echo "Fixed      : $fixed_count"
+echo "Failed     : $fail_count"
+echo
+echo "Log Files:"
+echo "  Run      : $RUN_LOG"
+echo "  OKs      : $OK_LOG"
+echo "  Fails    : $FAIL_LOG"
+echo "  Errors   : $ERROR_LOG"
+echo "  Fixes    : $FIX_LOG"
+} > "$SUMMARY_LOG"
+
+# 9. Terminal Output
+echo
+echo "----------------------------------------"
+echo "Processed: $total  OK: $ok_count  Fixed: $fixed_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 2B – Tag Processing & Deduplication"
+echo "----------------------------------------"
 
 ```
 --- Bash Script Step 2B End ---
