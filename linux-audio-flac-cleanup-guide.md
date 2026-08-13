@@ -292,25 +292,75 @@ No audio is re-encoded during this process.
 --- Bash Script Step 2A Start ---
 ```bash
 
-    #!/usr/bin/env bash
-    # Step 2A: File Discovery & Log Initialization
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2A: File Discovery & Log Initialization
+# ------------------------------------------------------------
 
-    bash << 'EOF'
+LOG_ROOT="$HOME/.logs/Linux_Audio_Folder_Level"
+GUIDE="Library_Cleanup"
+STEP="Step02A_Discovery"
 
-    LOGDIR="$HOME/flac_logs"
-    mkdir -p "$LOGDIR"
-    ERR_LOG="$LOGDIR/tag_dedup_errors.log"
-    FIX_LOG="$LOGDIR/tag_dedup.log"
-    RUN_LOG="$LOGDIR/step2_run.log"
-    
-    : > "$ERR_LOG"; : > "$FIX_LOG"
-    
-    TARGET_LIST="/tmp/step2_targets.txt"
-    find "$PWD" -type f -iname "*.flac" -print0 | LC_ALL=C sort -z > "$TARGET_LIST"
-    
-    total=$(grep -cz '^' "$TARGET_LIST" 2>/dev/null || echo 0)
-    echo "Part A Complete: Found $total .flac file(s) in $PWD"
-    EOF
+LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
+
+# 1. Create Root Guide Directory (if it doesn't exist yet)
+# We do this before cleanup to ensure the parent path exists
+mkdir -p "$LOG_ROOT/$GUIDE"
+
+# 2. CLEANUP: Remove all existing files in the STEP directory
+# This runs FIRST to ensure a clean slate
+find "$LOG_DIR" -type f -delete 2>/dev/null || true
+# Note: 2>/dev/null handles cases where LOG_DIR doesn't exist yet (rare but safe)
+
+# 3. Re-create the specific STEP directory after cleanup
+mkdir -p "$LOG_DIR"
+
+# 4. Define Log Files (Template Standard)
+RUN_LOG="$LOG_DIR/step02a_run.log"
+OK_LOG="$LOG_DIR/step02a_oks.log"
+FAIL_LOG="$LOG_DIR/step02a_fails.log"
+ERROR_LOG="$LOG_DIR/step02a_errors.log"
+SUMMARY_LOG="$LOG_DIR/step02a_summary.log"
+
+# 5. Initialize Empty Log Files
+touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG"
+
+# 6. Target List (Temp File for Discovery)
+TARGET_LIST="/tmp/step2_targets.txt"
+
+# 7. Discovery: Find FLAC files sorted safely
+find "$PWD" -type f -iname "*.flac" -print0 | LC_ALL=C sort -z > "$TARGET_LIST"
+
+# 8. Count Total Files (wc -z counts null terminators)
+total=$(wc -z < "$TARGET_LIST" | tr -d ' ')
+
+# 9. Initial Status Logging
+if [ "$total" -gt 0 ]; then
+    echo "OK   [1/1] Discovery Complete: Found $total .flac file(s)" | tee -a "$RUN_LOG" "$OK_LOG"
+else
+    echo "FAIL [1/1] Discovery Complete: No .flac files found" | tee -a "$RUN_LOG" "$FAIL_LOG"
+fi
+
+# 10. Summary Output
+{
+echo "Step 2A Summary"
+echo "==============="
+echo
+echo "Guide      : $GUIDE"
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Target Dir : $PWD"
+echo "Total Found: $total"
+echo "Log Dir    : $LOG_DIR"
+} > "$SUMMARY_LOG"
+
+# 11. Terminal Output
+echo
+echo "----------------------------------------"
+echo "Discovery Complete: $total .flac file(s) found"
+echo "----------------------------------------"
+echo "Step 2A – File Discovery & Log Initialization
 
 ```
 --- Bash Script Step 2A End ---
