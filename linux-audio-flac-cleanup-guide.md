@@ -147,17 +147,27 @@ STEP="Step01_Integrity_Test"
 
 LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
 
-mkdir -p "$LOG_DIR"
-find "$LOG_DIR" -type f -delete
+# 1. Ensure Guide Root Exists
+mkdir -p "$LOG_ROOT/$GUIDE"
 
+# 2. CLEANUP: Delete all existing files in the STEP directory immediately
+# This ensures no stale logs remain from previous runs
+find "$LOG_DIR" -type f -delete 2>/dev/null || true
+
+# 3. Re-create the specific STEP directory
+mkdir -p "$LOG_DIR"
+
+# 4. Define Log Files (Template Standard)
 RUN_LOG="$LOG_DIR/step01_run.log"
 OK_LOG="$LOG_DIR/step01_oks.log"
 FAIL_LOG="$LOG_DIR/step01_fails.log"
 ERROR_LOG="$LOG_DIR/step01_errors.log"
 SUMMARY_LOG="$LOG_DIR/step01_summary.log"
 
+# 5. Initialize Empty Log Files
 touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG"
 
+# 6. File Discovery
 mapfile -d '' files < <(
     find "$PWD" -type f \
         \( \
@@ -200,9 +210,11 @@ for f in "${files[@]}"; do
 
 done
 
-ok_count=$(grep -a -c "^OK" "$RUN_LOG")
-fail_count=$(grep -a -c "^FAIL" "$RUN_LOG")
+# 7. Count Results
+ok_count=$(grep -a -c "^OK" "$RUN_LOG" 2>/dev/null || echo 0)
+fail_count=$(grep -a -c "^FAIL" "$RUN_LOG" 2>/dev/null || echo 0)
 
+# 8. Generate Summary
 {
 echo "Step 1 Summary"
 echo "=============="
@@ -216,6 +228,7 @@ echo "Passed     : $ok_count"
 echo "Failed     : $fail_count"
 } > "$SUMMARY_LOG"
 
+# 9. Terminal Output
 echo
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
@@ -303,16 +316,14 @@ STEP="Step02A_Discovery"
 
 LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
 
-# 1. Create Root Guide Directory (if it doesn't exist yet)
-# We do this before cleanup to ensure the parent path exists
+# 1. Ensure Guide Root Exists
 mkdir -p "$LOG_ROOT/$GUIDE"
 
-# 2. CLEANUP: Remove all existing files in the STEP directory
-# This runs FIRST to ensure a clean slate
+# 2. CLEANUP: Delete all existing files in the STEP directory immediately
+# This ensures no stale logs remain from previous runs
 find "$LOG_DIR" -type f -delete 2>/dev/null || true
-# Note: 2>/dev/null handles cases where LOG_DIR doesn't exist yet (rare but safe)
 
-# 3. Re-create the specific STEP directory after cleanup
+# 3. Re-create the specific STEP directory
 mkdir -p "$LOG_DIR"
 
 # 4. Define Log Files (Template Standard)
@@ -360,7 +371,8 @@ echo
 echo "----------------------------------------"
 echo "Discovery Complete: $total .flac file(s) found"
 echo "----------------------------------------"
-echo "Step 2A – File Discovery & Log Initialization
+echo "Step 2A – File Discovery & Log Initialization"
+echo "----------------------------------------"
 
 ```
 --- Bash Script Step 2A End ---
@@ -576,18 +588,92 @@ After the cleanup completes, separate successful, modified, and failed results:
 --- Bash Script Results 2 Start ---
 ```bash
 
-    LOGDIR="$HOME/flac_logs"
-    
-    grep '^OK' "$LOGDIR/step2_run.log" \
-        > "$LOGDIR/step2_oks.log"
-    
-    grep '^FIXED' "$LOGDIR/step2_run.log" \
-        > "$LOGDIR/step2_fixed.log"
-    
-    grep '^FAIL' "$LOGDIR/step2_run.log" \
-        > "$LOGDIR/step2_fails.log"
-    
-    echo "Step 2 OKs: $(wc -l < "$LOGDIR/step2_oks.log")  FIXED: $(wc -l < "$LOGDIR/step2_fixed.log")  FAILs: $(wc -l < "$LOGDIR/step2_fails.log")"
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C: Log Post-Processing & Summary
+# ------------------------------------------------------------
+
+LOG_ROOT="$HOME/.logs/Linux_Audio_Folder_Level"
+GUIDE="Library_Cleanup"
+STEP="Step02C_Summary"
+
+LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
+
+# 1. Directory Setup & Cleanup (Template Standard)
+mkdir -p "$LOG_ROOT/$GUIDE"
+find "$LOG_DIR" -type f -delete 2>/dev/null || true
+mkdir -p "$LOG_DIR"
+
+# 2. Define Log Files (Template Standard)
+RUN_LOG="$LOG_DIR/step02c_run.log"
+OK_LOG="$LOG_DIR/step02c_oks.log"
+FAIL_LOG="$LOG_DIR/step02c_fails.log"
+ERROR_LOG="$LOG_DIR/step02c_errors.log"
+SUMMARY_LOG="$LOG_DIR/step02c_summary.log"
+FIX_LOG="$LOG_DIR/step02c_fixes.log"
+
+# 3. Initialize Log Files
+touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG" "$FIX_LOG"
+
+# 4. Source Run Log (From Step 2B)
+# Note: Step 2B writes to step02b_run.log in its own directory
+SOURCE_RUN_LOG="$LOG_ROOT/$GUIDE/Step02B_Dedup/step02b_run.log"
+
+if [ ! -f "$SOURCE_RUN_LOG" ]; then
+    echo "ERROR: Source log not found at $SOURCE_RUN_LOG" | tee -a "$RUN_LOG" "$ERROR_LOG"
+    {
+    echo "Step 2C Summary"
+    echo "==============="
+    echo "Error: Source log (Step 2B) not found."
+    echo "Expected: $SOURCE_RUN_LOG"
+    } > "$SUMMARY_LOG"
+    exit 1
+fi
+
+# 5. Extract Results
+# Note: Using -a flag to safely handle binary/null bytes if any
+grep -a '^OK' "$SOURCE_RUN_LOG" > "$OK_LOG"
+grep -a '^FIXED' "$SOURCE_RUN_LOG" > "$FIX_LOG"
+grep -a '^FAIL' "$SOURCE_RUN_LOG" > "$FAIL_LOG"
+
+# 6. Count Results
+ok_count=$(wc -l < "$OK_LOG" | tr -d ' ')
+fix_count=$(wc -l < "$FIX_LOG" | tr -d ' ')
+fail_count=$(wc -l < "$FAIL_LOG" | tr -d ' ')
+total_processed=$((ok_count + fix_count + fail_count))
+
+# 7. Generate Summary
+{
+echo "Step 2C Summary"
+echo "==============="
+echo
+echo "Guide      : $GUIDE"
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Source Log : $SOURCE_RUN_LOG"
+echo "Processed  : $total_processed"
+echo "OK         : $ok_count"
+echo "Fixed      : $fix_count"
+echo "Failed     : $fail_count"
+echo
+echo "Output Files:"
+echo "  OKs      : $OK_LOG"
+echo "  Fixes    : $FIX_LOG"
+echo "  Fails    : $FAIL_LOG"
+} > "$SUMMARY_LOG"
+
+# 8. Terminal Output
+echo
+echo "----------------------------------------"
+echo "Step 2C: Log Post-Processing Complete"
+echo "----------------------------------------"
+echo "OKs      : $ok_count"
+echo "FIXED    : $fix_count"
+echo "FAILs    : $fail_count"
+echo "Total    : $total_processed"
+echo "----------------------------------------"
+echo "Summary saved to: $SUMMARY_LOG"
 
 ```
 --- Bash Script Results 2 End ---
