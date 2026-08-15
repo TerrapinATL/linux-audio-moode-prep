@@ -754,103 +754,143 @@ A warning related to embedded artwork may appear during this step. If a file rep
     #!/usr/bin/env bash
     #Step 3 – Strip Invalid Metadata Headers
     
-    LOGDIR="$HOME/flac_logs"
-    mkdir -p "$LOGDIR"
-    : > "$LOGDIR/ffmpeg_errors.log"
-    
-    mapfile -d '' files < <(
-        find "$PWD" -type f -name "*.flac" ! -name "*.fixed.flac" -print0 | sort -z
-    )
-    
-    total=${#files[@]}
-    i=0
-    
-    for f in "${files[@]}"; do
-        i=$((i+1))
-    
-        artist=$(basename "$(dirname "$(dirname "$f")")")
-        album=$(basename "$(dirname "$f")")
-        track=$(basename "$f" .flac)
-    
-        label="$artist-$album-$track"
-    
-        err=$(ffmpeg \
-            -nostdin \
-            -nostats \
-            -loglevel error \
-            -i "$f" \
-            -map_metadata 0 \
-            -c copy \
-            "${f}.fixed.flac" \
-            -y 2>&1 >/dev/null)
-    
-        rc=$?
-    
-        if [ $rc -ne 0 ] || [ -n "$err" ]; then
-    
-            flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
-    
-            rm -f "${f}.fixed.flac"
-    
-            echo "FAIL [$i/$total] $label"
-    
-            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
-                >> "$LOGDIR/ffmpeg_errors.log"
-    
+ #!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 3 – Strip Invalid Metadata Headers
+# ------------------------------------------------------------
+LOG_ROOT="$HOME/.logs/Linux_Audio_Folder_Level"
+GUIDE="Library_Cleanup"
+STEP="Step03_Metadata_Header_Strip"
+LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
+
+# 1. Ensure Guide Root Exists
+mkdir -p "$LOG_ROOT/$GUIDE"
+
+# 2. CLEANUP: Delete all existing files in the STEP directory immediately
+# This ensures no stale logs remain from previous runs
+find "$LOG_DIR" -type f -delete 2>/dev/null || true
+
+# 3. Re-create the specific STEP directory
+mkdir -p "$LOG_DIR"
+
+# 4. Define Log Files (Template Standard)
+RUN_LOG="$LOG_DIR/step03_run.log"
+OK_LOG="$LOG_DIR/step03_oks.log"
+FAIL_LOG="$LOG_DIR/step03_fails.log"
+ERROR_LOG="$LOG_DIR/step03_errors.log"
+SUMMARY_LOG="$LOG_DIR/step03_summary.log"
+
+# 5. Initialize Empty Log Files
+touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG"
+
+# 6. File Discovery
+mapfile -d '' files < <(
+    find "$PWD" -type f -name "*.flac" ! -name "*.fixed.flac" -print0 | LC_ALL=C sort -z
+)
+
+total=${#files[@]}
+i=0
+
+for f in "${files[@]}"; do
+    ((i++))
+
+    artist=$(basename "$(dirname "$(dirname "$f")")")
+    album=$(basename "$(dirname "$f")")
+    track=$(basename "$f" .flac)
+    label="$artist-$album-$track"
+
+    err=$(ffmpeg \
+        -nostdin \
+        -nostats \
+        -loglevel error \
+        -i "$f" \
+        -map_metadata 0 \
+        -c copy \
+        "${f}.fixed.flac" \
+        -y 2>&1 >/dev/null)
+    rc=$?
+
+    if [ $rc -ne 0 ] || [ -n "$err" ] || [ ! -s "${f}.fixed.flac" ]; then
+        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
+        rm -f "${f}.fixed.flac"
+        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERROR_LOG"
+    else
+        if mv -f "${f}.fixed.flac" "$f"; then
+            echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OK_LOG"
         else
-    
-            mv "${f}.fixed.flac" "$f"
-    
-            echo "OK [$i/$total] $label"
-    
+            mv_rc=$?
+            rm -f "${f}.fixed.flac"
+            echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+            echo "[$i/$total] ERROR (mv exit $mv_rc): $label :: $f :: failed to move fixed file into place" >> "$ERROR_LOG"
         fi
-    
-    done | tee "$LOGDIR/step3_run.log"
+    fi
+done
+
+# 7. Count Results
+ok_count=$(grep -a -c "^OK" "$RUN_LOG" 2>/dev/null || echo 0)
+fail_count=$(grep -a -c "^FAIL" "$RUN_LOG" 2>/dev/null || echo 0)
+
+# 8. Generate Summary
+{
+echo "Step 3 Summary"
+echo "=============="
+echo
+echo "Guide      : $GUIDE"
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
+
+# 9. Terminal Output
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 3 – Strip Invalid Metadata Headers"
+echo "----------------------------------------"
 
 ```
 --- Bash Script Step 3 End ---
 
 \-------------------------------------------------------------------
+-- Step 3B: View Log Files
 
--- Separate Results
-
-After the rebuild completes, separate successful and failed results:
-
---- Bash Script Results 3 Start ---
+--- Bash Script Cat 3B Start ---
 ```bash
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 3B – View Log Results
+# ------------------------------------------------------------
+LOG_ROOT="$HOME/.logs/Linux_Audio_Folder_Level"
+GUIDE="Library_Cleanup"
+STEP="Step03_Metadata_Header_Strip"
+LOG_DIR="$LOG_ROOT/$GUIDE/$STEP"
 
-    LOGDIR="$HOME/flac_logs"
-    
-    grep '^OK' "$LOGDIR/step3_run.log" \
-        > "$LOGDIR/step3_oks.log"
-    
-    grep '^FAIL' "$LOGDIR/step3_run.log" \
-        > "$LOGDIR/step3_fails.log"
-    
-    echo "Step 3 OKs: $(wc -l < "$LOGDIR/step3_oks.log")  FAILs: $(wc -l < "$LOGDIR/step3_fails.log")"
+echo "=== step03_summary.log ==="
+cat "$LOG_DIR/step03_summary.log"
+
+echo
+echo "=== step03_errors.log ==="
+cat "$LOG_DIR/step03_errors.log"
+
+echo
+echo "=== step03_run.log ==="
+cat "$LOG_DIR/step03_run.log"
+
+echo
+echo "=== step03_oks.log ==="
+cat "$LOG_DIR/step03_oks.log"
+
+echo
+echo "=== step03_fails.log ==="
+cat "$LOG_DIR/step03_fails.log"
 
 ```
---- Bash Script Results 3 End ---
-
-\-------------------------------------------------------------------
-
--- Review Results
-
-View the generated reports:
-
---- Bash Script Cat 3 Start ---
-```bash
-
-    cat "$LOGDIR/ffmpeg_errors.log"
-    
-    cat "$LOGDIR/step3_run.log"
-    
-    cat "$LOGDIR/step3_oks.log"
-    
-    cat "$LOGDIR/step3_fails.log"
-
-```
---- Bash Script Cat 3 End ---
+--- Bash Script Cat 3B End ---
 
 \-------------------------------------------------------------------
 
