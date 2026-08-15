@@ -1,6 +1,6 @@
 # [Linux Audio Utilities](https://github.com/TerrapinATL/linux.audio.flac-clean-up/edit/main/Readme.md)
 
-A collection of lightweight command-line workflows and utilities designed for validating, cleaning, managing, and backing up local FLAC music libraries on Linux.
+A collection of lightweight command-line workflows and utilities designed for validating, cleaning, managing, and backing up local music libraries on Linux.
 
 ## Overview
 
