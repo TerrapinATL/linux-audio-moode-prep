@@ -31,7 +31,7 @@ A four part series to clean, verify, and lockdown securely the integrity of an a
 
 2. linux-audio-sha512-checksums: https://github.com/TerrapinATL/linux-audio-sha512-checksums
 
-3. linux-os.nemo-sha512-shortcut:https://github.com/TerrapinATL/linux-os-nemo-sha512-shortcut
+3. linux-os-nemo-sha512-shortcut:https://github.com/TerrapinATL/linux-os-nemo-sha512-shortcut
 
 4. linux-audio-folder-recertification: https://github.com/TerrapinATL/linux-audio-folder-recertification
 
