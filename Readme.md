@@ -25,13 +25,15 @@ Ensure you have the following command-line utilities installed on your system:
 
 ## Recommended Workflow
 
-A three part series to clean, verify, and lockdown securely the integrity of an audio file library. 
+A four part series to clean, verify, and lockdown securely the integrity of an audio file library. 
 
-1. linux.audio.flac-clean-up: https://github.com/TerrapinATL/linux.audio.flac-clean-up
+1. linux-audio-moode-prep: https://github.com/TerrapinATL/linux-audio-moode-prep
 
-2. linux.audio.sha512-checksums: https://github.com/TerrapinATL/linux.audio.sha512-checksums
+2. linux-audio-sha512-checksums: https://github.com/TerrapinATL/linux-audio-sha512-checksums
 
-3. linux.os.nemo.sha512-shortcut: https://github.com/TerrapinATL/linux.os.nemo.sha512-shortcut
+3. linux-os.nemo-sha512-shortcut:https://github.com/TerrapinATL/linux-os-nemo-sha512-shortcut
+
+4. linux-audio-folder-recertification: https://github.com/TerrapinATL/linux-audio-folder-recertification
 
 ## Disclaimer
 
