@@ -751,10 +751,7 @@ A warning related to embedded artwork may appear during this step. If a file rep
 --- Bash Script Step 3 Start ---
 ```bash
 
-    #!/usr/bin/env bash
-    #Step 3 – Strip Invalid Metadata Headers
-    
- #!/usr/bin/env bash
+#!/usr/bin/env bash
 # ------------------------------------------------------------
 # Step 3 – Strip Invalid Metadata Headers
 # ------------------------------------------------------------
@@ -861,6 +858,7 @@ echo "----------------------------------------"
 
 --- Bash Script Cat 3B Start ---
 ```bash
+
 #!/usr/bin/env bash
 # ------------------------------------------------------------
 # Step 3B – View Log Results
@@ -898,10 +896,10 @@ cat "$LOG_DIR/step03_fails.log"
 
 A successful run produces:
 
-* step3_run.log — Complete rebuild results.
-* step3_oks.log — Files successfully rebuilt.
-* step3_fails.log — Files that could not be rebuilt.
-* ffmpeg_errors.log — Detailed error output from failed rebuilds.
+step03_run.log — Complete rebuild results.
+step03_oks.log — Files successfully rebuilt.
+step03_fails.log — Files that could not be rebuilt.
+step03_errors.log — Detailed error output from failed rebuilds.
 
 After this step, files that previously contained invalid headers should have clean FLAC containers while preserving the original audio stream.
 
