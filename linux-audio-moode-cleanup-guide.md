@@ -217,6 +217,43 @@ if [ -s "$ERRORS_LOG" ]; then
     echo "----------------------------------------"
     cat "$ERRORS_LOG"
 fi
+
+awk '
+/LOST_SYNC/ {
+    idx = index($0, " :: ")
+    if (idx > 0) {
+        temp = substr($0, 1, idx - 1)
+        pos = index(temp, "): ") + 3
+        path = substr(temp, pos)
+        lost_sync[path] = 1
+    }
+}
+/END_OF_STREAM/ && !/LOST_SYNC/ {
+    idx = index($0, " :: ")
+    if (idx > 0) {
+        temp = substr($0, 1, idx - 1)
+        pos = index(temp, "): ") + 3
+        path = substr(temp, pos)
+        eos[path] = 1
+    }
+}
+END {
+    if (length(lost_sync) > 0) {
+        print "LOST_SYNC"
+        print "----------"
+        for (p in lost_sync) print p | "sort"
+        close("sort")
+    }
+    if (length(eos) > 0) {
+        print ""
+        print "END_OF_STREAM"
+        print "----------"
+        for (p in eos) print p | "sort"
+        close("sort")
+    }
+}
+' "$HOME/.logs/linux-audio-moode-cleanup-guide/step01-errors.log"
+
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
 echo "----------------------------------------"
