@@ -388,19 +388,19 @@ Locate all candidate audio files and create the clean input list.
 set -u
 
 TARGET_DIR="${1:-.}"
+
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
 STEP="step02a"
+
 mkdir -p "$LOG_ROOT"
 
 RUN_LOG="$LOG_ROOT/${STEP}-run.log"
 OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
-FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
 ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
 SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
 : > "$RUN_LOG"
 : > "$OKS_LOG"
-: > "$FAILS_LOG"
 : > "$ERRORS_LOG"
 : > "$SUMMARY_LOG"
 
@@ -408,55 +408,61 @@ CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
 : > "$CANDIDATE_LIST"
 
 if [ ! -d "$TARGET_DIR" ]; then
-    echo "ERROR: target directory not found :: $TARGET_DIR" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
-    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
-    echo "----------------------------------------"
-    echo "Step 2A - File Discovery"
-    echo "----------------------------------------"
-    
-    # Interactive view for directory target errors
-    if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
-        echo
-        echo "=================================================="
-        echo " ERRORS DETECTED — Press ENTER to view error log"
-        echo " (Use arrow keys to scroll, press 'q' to exit)"
-        echo "=================================================="
-        read -r
-        less -R "$ERRORS_LOG"
-    fi
-    exit 1
-fi
+    echo "ERROR: target directory not found :: $TARGET_DIR" \
+        >> "$ERRORS_LOG"
 
-total=0
-found=0
+    echo "CANDIDATES=0" >> "$SUMMARY_LOG"
+    echo "ERRORS_DETECTED=1" >> "$SUMMARY_LOG"
 
-while IFS= read -r -d '' file; do
-    total=$((total + 1))
-    echo "OK [$total] candidate found :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
-    printf '%s\0' "$file" >> "$CANDIDATE_LIST"
-    found=$((found + 1))
-done < <(find "$TARGET_DIR" -type f \( \
-    -iname '*.flac' -o -iname '*.mp3' -o -iname '*.m4a' -o -iname '*.mp4' -o \
-    -iname '*.wv' -o -iname '*.ogg' -o -iname '*.opus' -o -iname '*.aac' -o \
-    -iname '*.wav' -o -iname '*.aiff' -o -iname '*.aif' -o -iname '*.aifc' -o \
-    -iname '*.ape' -o -iname '*.mpc' -o -iname '*.spx' \) -print0)
-
-echo "TOTAL_CANDIDATES=$found" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
-
-
-# Interactive error inspector
-if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
     echo
-    echo "=================================================="
-    echo " ERRORS DETECTED — Press ENTER to view error log"
-    echo " (Use arrow keys to scroll, press 'q' to exit)"
-    echo "=================================================="
-    read -r
-    less -R "$ERRORS_LOG"
+    echo "Error log: $ERRORS_LOG"
+    echo "CANDIDATES=0"
+    echo "ERRORS_DETECTED=1"
+else
+    find "$TARGET_DIR" -type f \( \
+        -iname '*.flac' -o \
+        -iname '*.mp3' -o \
+        -iname '*.m4a' -o \
+        -iname '*.mp4' -o \
+        -iname '*.wv' -o \
+        -iname '*.ogg' -o \
+        -iname '*.opus' -o \
+        -iname '*.aac' -o \
+        -iname '*.wav' -o \
+        -iname '*.aiff' -o \
+        -iname '*.aif' -o \
+        -iname '*.aifc' -o \
+        -iname '*.ape' -o \
+        -iname '*.mpc' -o \
+        -iname '*.spx' \
+    \) -print0 > "$CANDIDATE_LIST" 2>>"$ERRORS_LOG" || true
+
+    found=0
+
+    while IFS= read -r -d '' file; do
+        found=$((found + 1))
+        printf 'OK [%d] candidate found :: %s\n' "$found" "$file" \
+            >> "$RUN_LOG"
+        printf '%s\0' "$file" >> "$OKS_LOG"
+    done < "$CANDIDATE_LIST"
+
+    if [ -s "$ERRORS_LOG" ]; then
+        error_count=$(wc -l < "$ERRORS_LOG")
+    else
+        error_count=0
+    fi
+
+    echo "CANDIDATES=$found" >> "$SUMMARY_LOG"
+    echo "ERRORS_DETECTED=$error_count" >> "$SUMMARY_LOG"
+
+    echo
+    if [ "$error_count" -gt 0 ]; then
+        echo "Error log: $ERRORS_LOG"
+    fi
+    echo "CANDIDATES=$found"
+    echo "ERRORS_DETECTED=$error_count"
 fi
 
-echo "Candidates found: $found"
 echo "----------------------------------------"
 echo "Step 2A - File Discovery"
 echo "----------------------------------------"
@@ -464,6 +470,19 @@ echo "----------------------------------------"
 ```
 
 --- Bash Script Step 2A End ---
+
+\ ---------------------------------------------------------------------------------------
+
+--- Bash Script Cat 2A Start ---
+```bash
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02a-errors.log"
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02a-summary.log"
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02a-run.log"
+
+tr '\0' '\n' < /tmp/Step02-audio-candidates.txt
+
+```
+--- Bash Script Cat 2A End ---
 
 \ ---------------------------------------------------------------------------------------
 
