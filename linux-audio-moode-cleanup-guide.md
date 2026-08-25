@@ -500,7 +500,7 @@ Unsupported: raw AAC, WAV, AIFF, AIF, AIFC, APE, MPC, SPX, and anything else Ste
 
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# Step 2B — Format Check
+# Step 2B — Format Validation
 # ------------------------------------------------------------
 
 set -u
@@ -511,69 +511,65 @@ STEP="step02b"
 mkdir -p "$LOG_ROOT"
 
 RUN_LOG="$LOG_ROOT/${STEP}-run.log"
-OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
-REVIEW_LOG="$LOG_ROOT/${STEP}-review.log"
 ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
 SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
 : > "$RUN_LOG"
-: > "$OKS_LOG"
-: > "$REVIEW_LOG"
 : > "$ERRORS_LOG"
 : > "$SUMMARY_LOG"
 
 CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
 
-supported_count=0
-review_count=0
-unsupported_count=0
+candidate_count=0
 error_count=0
 
-if [ ! -s "$CANDIDATE_LIST" ]; then
+if [ -s "$CANDIDATE_LIST" ]; then
+    while IFS= read -r -d '' file; do
+
+        candidate_count=$((candidate_count + 1))
+
+        probe_error=$(mktemp)
+
+        codec=$(ffprobe \
+            -v error \
+            -select_streams a:0 \
+            -show_entries stream=codec_name \
+            -of default=noprint_wrappers=1:nokey=1 \
+            "$file" 2>"$probe_error")
+
+        if [ $? -ne 0 ] || [ -z "$codec" ]; then
+
+            echo "ERROR: format validation failed :: $file" >> "$ERRORS_LOG"
+
+            if [ -s "$probe_error" ]; then
+                cat "$probe_error" >> "$ERRORS_LOG"
+            fi
+
+            error_count=$((error_count + 1))
+
+        else
+
+            format=$(ffprobe \
+                -v error \
+                -show_entries format=format_name \
+                -of default=noprint_wrappers=1:nokey=1 \
+                "$file" 2>/dev/null)
+
+            echo "OK :: $file :: format=$format :: codec=$codec" >> "$RUN_LOG"
+
+        fi
+
+        rm -f "$probe_error"
+
+    done < "$CANDIDATE_LIST"
+else
     echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" \
         >> "$ERRORS_LOG"
 
     error_count=1
-else
-    while IFS= read -r -d '' file; do
-
-        if [ ! -r "$file" ]; then
-            echo "ERROR: unreadable file :: $file" \
-                >> "$ERRORS_LOG"
-            error_count=$((error_count + 1))
-            continue
-        fi
-
-        ext="${file##*.}"
-        ext_lc="${ext,,}"
-
-        case "$ext_lc" in
-            flac|mp3|ogg|opus)
-                echo "OK [SUPPORTED] :: $file" >> "$RUN_LOG"
-                echo "$file" >> "$OKS_LOG"
-                supported_count=$((supported_count + 1))
-                ;;
-
-            m4a|mp4|wv|aac|wav|aiff|aif|aifc|ape|mpc|spx)
-                echo "REVIEW [MANUAL_CHECK] :: $file" >> "$RUN_LOG"
-                echo "$file" >> "$REVIEW_LOG"
-                review_count=$((review_count + 1))
-                ;;
-
-            *)
-                echo "FAIL [UNSUPPORTED] :: $file" >> "$RUN_LOG"
-                echo "$file" >> "$ERRORS_LOG"
-                unsupported_count=$((unsupported_count + 1))
-                ;;
-
-        esac
-
-    done < "$CANDIDATE_LIST"
 fi
 
-echo "SUPPORTED_FORMATS=$supported_count" >> "$SUMMARY_LOG"
-echo "REVIEW_FORMATS=$review_count" >> "$SUMMARY_LOG"
-echo "UNSUPPORTED_FORMATS=$unsupported_count" >> "$SUMMARY_LOG"
+echo "CANDIDATES=$candidate_count" >> "$SUMMARY_LOG"
 echo "ERRORS_DETECTED=$error_count" >> "$SUMMARY_LOG"
 
 if [ "$error_count" -gt 0 ]; then
@@ -581,13 +577,11 @@ if [ "$error_count" -gt 0 ]; then
 fi
 
 echo
-echo "SUPPORTED_FORMATS=$supported_count"
-echo "REVIEW_FORMATS=$review_count"
-echo "UNSUPPORTED_FORMATS=$unsupported_count"
+echo "CANDIDATES=$candidate_count"
 echo "ERRORS_DETECTED=$error_count"
 
 echo "----------------------------------------"
-echo "Step 2B - Format Check"
+echo "Step 2B - Format Validation"
 echo "----------------------------------------"
 
 ```
@@ -602,8 +596,6 @@ echo "----------------------------------------"
 cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-errors.log"
 cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-summary.log"
 cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-run.log"
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-oks.log"
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-review.log"
 
 ```
 --- Bash Script Cat 2B End ---
