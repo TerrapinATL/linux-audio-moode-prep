@@ -507,101 +507,106 @@ set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
 STEP="step02b"
+
 mkdir -p "$LOG_ROOT"
 
 RUN_LOG="$LOG_ROOT/${STEP}-run.log"
 OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
-FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+REVIEW_LOG="$LOG_ROOT/${STEP}-review.log"
 ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
 SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
 : > "$RUN_LOG"
 : > "$OKS_LOG"
-: > "$FAILS_LOG"
+: > "$REVIEW_LOG"
 : > "$ERRORS_LOG"
 : > "$SUMMARY_LOG"
 
 CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
 
-if [ ! -s "$CANDIDATE_LIST" ]; then
-    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
-    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
-    
-    if [ -t 1 ]; then
-        read -rp "Press ENTER to view error log..." </dev/tty
-        less -R "$ERRORS_LOG" </dev/tty
-    fi
-
-    echo "----------------------------------------"
-    echo "Step 2B - Format Assessment"
-    echo "----------------------------------------"
-    echo "Run Step 2A first."
-    exit 1
-fi
-
 supported_count=0
 review_count=0
 unsupported_count=0
+error_count=0
 
-while IFS= read -r -d '' file; do
-    if [ ! -r "$file" ]; then
-        echo "ERROR: unreadable file :: $file" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
-        continue
-    fi
+if [ ! -s "$CANDIDATE_LIST" ]; then
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" \
+        >> "$ERRORS_LOG"
 
-    ext="${file##*.}"
-    ext_lc="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
+    error_count=1
+else
+    while IFS= read -r -d '' file; do
 
-    case "$ext_lc" in
-        flac|mp3|ogg|opus)
-            echo "OK [SUPPORTED] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
-            supported_count=$((supported_count + 1))
-            ;;
-        m4a|mp4|wv|aac|wav|aiff|aif|aifc|ape|mpc|spx)
-            echo "REVIEW [MANUAL_CHECK] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
-            review_count=$((review_count + 1))
-            ;;
-        *)
-            echo "FAIL [UNSUPPORTED] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
-            unsupported_count=$((unsupported_count + 1))
-            ;;
-    esac
-done < "$CANDIDATE_LIST"
+        if [ ! -r "$file" ]; then
+            echo "ERROR: unreadable file :: $file" \
+                >> "$ERRORS_LOG"
+            error_count=$((error_count + 1))
+            continue
+        fi
 
-echo "SUPPORTED_FORMATS=$supported_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "REVIEW_FORMATS=$review_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "UNSUPPORTED_FORMATS=$unsupported_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
+        ext="${file##*.}"
+        ext_lc="${ext,,}"
 
-# Open viewer with explicit TTY redirection
-if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
-    echo
-    echo "=================================================="
-    echo " ERRORS DETECTED — Press ENTER to view error log"
-    echo "=================================================="
-    read -r </dev/tty
-    less -R "$ERRORS_LOG" </dev/tty
-elif [ -t 1 ] && [ -s "$FAILS_LOG" ]; then
-    echo
-    echo "=================================================="
-    echo " REVIEW/FAILS FOUND — Press ENTER to view log"
-    echo "=================================================="
-    read -r </dev/tty
-    less -R "$FAILS_LOG" </dev/tty
+        case "$ext_lc" in
+            flac|mp3|ogg|opus)
+                echo "OK [SUPPORTED] :: $file" >> "$RUN_LOG"
+                echo "$file" >> "$OKS_LOG"
+                supported_count=$((supported_count + 1))
+                ;;
+
+            m4a|mp4|wv|aac|wav|aiff|aif|aifc|ape|mpc|spx)
+                echo "REVIEW [MANUAL_CHECK] :: $file" >> "$RUN_LOG"
+                echo "$file" >> "$REVIEW_LOG"
+                review_count=$((review_count + 1))
+                ;;
+
+            *)
+                echo "FAIL [UNSUPPORTED] :: $file" >> "$RUN_LOG"
+                echo "$file" >> "$ERRORS_LOG"
+                unsupported_count=$((unsupported_count + 1))
+                ;;
+
+        esac
+
+    done < "$CANDIDATE_LIST"
 fi
 
-# Footer strictly at the absolute end
+echo "SUPPORTED_FORMATS=$supported_count" >> "$SUMMARY_LOG"
+echo "REVIEW_FORMATS=$review_count" >> "$SUMMARY_LOG"
+echo "UNSUPPORTED_FORMATS=$unsupported_count" >> "$SUMMARY_LOG"
+echo "ERRORS_DETECTED=$error_count" >> "$SUMMARY_LOG"
 
-echo "Supported formats   : $supported_count"
-echo "Review required     : $review_count"
-echo "Unsupported formats : $unsupported_count"
+if [ "$error_count" -gt 0 ]; then
+    echo "Error log: $ERRORS_LOG"
+fi
+
+echo
+echo "SUPPORTED_FORMATS=$supported_count"
+echo "REVIEW_FORMATS=$review_count"
+echo "UNSUPPORTED_FORMATS=$unsupported_count"
+echo "ERRORS_DETECTED=$error_count"
+
 echo "----------------------------------------"
-echo "Step 2B - Format Assessment"
+echo "Step 2B - Format Check"
 echo "----------------------------------------"
 
 ```
 
 --- Bash Script Step 2B End ---
+
+\ ---------------------------------------------------------------------------------------
+
+--- Bash Script Cat 2B Start ---
+```bash
+
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-errors.log"
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-summary.log"
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-run.log"
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-oks.log"
+cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-review.log"
+
+```
+--- Bash Script Cat 2B End ---
 
 \ ---------------------------------------------------------------------------------------
 
