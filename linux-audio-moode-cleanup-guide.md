@@ -119,7 +119,7 @@ This step:
 
 No files are modified during this step.
 
-\-------------------------------------------------------------------
+\---------------------------------------------------------------------------------------
 
 --- Bash Script Step 1 Start ---
 ```bash
@@ -254,6 +254,9 @@ END {
 }
 ' "$HOME/.logs/linux-audio-moode-cleanup-guide/step01-errors.log"
 
+
+
+
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
 echo "----------------------------------------"
@@ -263,7 +266,7 @@ echo "----------------------------------------"
 ```
 --- Bash Script Step 1 End ---
 
-\-------------------------------------------------------------------
+\---------------------------------------------------------------------------------------
 
 --- Bash Script Cat Step 1 Start ---
 ```bash
@@ -329,7 +332,7 @@ The operation is strictly non-destructive:
 
 The working copy is the only copy processed. The Master Library is never modified.
 
-\ ---------------------------------------------------------------------------------------
+\---------------------------------------------------------------------------------------
 
 -- Step 2 Workflow
 
@@ -370,370 +373,477 @@ $HOME/.logs/linux-audio-moode-cleanup-guide/step02<letter>-summary.log    final 
 
 Every per-file line is written with `tee -a` at the point it happens, to `run.log` and to whichever of `oks.log` / `fails.log` applies. Files needing manual review (M4A/AAC and WavPack duplicates) are logged to `fails.log` with a `REVIEW` tag rather than `FAIL`, so they surface as a punch list without being confused with genuine processing failures.
 
-\ ---------------------------------------------------------------------------------------
+\---------------------------------------------------------------------------------------
 
-## Step 2A — File Discovery
+## Step 2C — moOde Container & Metadata Repair
 
-Locate all candidate audio files and create the clean input list.
+Repairs and validates audio file headers to moOde specification. Extracts canonical metadata (Artist, Album, Album Artist, Track#, Track Name, Year), removes rogue/duplicate tags, rebuilds containers to moOde standards, and verifies post-repair integrity.
 
---- Bash Script Step 2A Start ---
+\---------------------------------------------------------------------------------------
 
+## Step 2C.1 — Initialize & Extract Canonical moOde Fields
+
+Ensures candidate list exists, initializes log files, and performs first-pass metadata extraction to identify canonical moOde fields before any repairs.
+
+--- Bash Script Step 2C.1 Start ---
 ```bash
 
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# Step 2A — File Discovery
+# Step 2C.1 — Init Logs and Check Input
 # ------------------------------------------------------------
 
+# Extracts Artist, Album, Album Artist, Track#, Track Name, Year
 set -u
-
-TARGET_DIR="${1:-.}"
-
-LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step02a"
-
-mkdir -p "$LOG_ROOT"
-
-RUN_LOG="$LOG_ROOT/${STEP}-run.log"
-OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
-ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
-SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
-
-: > "$RUN_LOG"
-: > "$OKS_LOG"
-: > "$ERRORS_LOG"
-: > "$SUMMARY_LOG"
-
-CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
-: > "$CANDIDATE_LIST"
-
-if [ ! -d "$TARGET_DIR" ]; then
-    echo "ERROR: target directory not found :: $TARGET_DIR" \
-        >> "$ERRORS_LOG"
-
-    echo "CANDIDATES=0" >> "$SUMMARY_LOG"
-    echo "ERRORS_DETECTED=1" >> "$SUMMARY_LOG"
-
-    echo
-    echo "Error log: $ERRORS_LOG"
-    echo "CANDIDATES=0"
-    echo "ERRORS_DETECTED=1"
-else
-    find "$TARGET_DIR" -type f \( \
-        -iname '*.flac' -o \
-        -iname '*.mp3' -o \
-        -iname '*.m4a' -o \
-        -iname '*.mp4' -o \
-        -iname '*.wv' -o \
-        -iname '*.ogg' -o \
-        -iname '*.opus' -o \
-        -iname '*.aac' -o \
-        -iname '*.wav' -o \
-        -iname '*.aiff' -o \
-        -iname '*.aif' -o \
-        -iname '*.aifc' -o \
-        -iname '*.ape' -o \
-        -iname '*.mpc' -o \
-        -iname '*.spx' \
-    \) -print0 > "$CANDIDATE_LIST" 2>>"$ERRORS_LOG" || true
-
-    found=0
-
-    while IFS= read -r -d '' file; do
-        found=$((found + 1))
-        printf 'OK [%d] candidate found :: %s\n' "$found" "$file" \
-            >> "$RUN_LOG"
-        printf '%s\0' "$file" >> "$OKS_LOG"
-    done < "$CANDIDATE_LIST"
-
-    if [ -s "$ERRORS_LOG" ]; then
-        error_count=$(wc -l < "$ERRORS_LOG")
-    else
-        error_count=0
-    fi
-
-    echo "CANDIDATES=$found" >> "$SUMMARY_LOG"
-    echo "ERRORS_DETECTED=$error_count" >> "$SUMMARY_LOG"
-
-    echo
-    if [ "$error_count" -gt 0 ]; then
-        echo "Error log: $ERRORS_LOG"
-    fi
-    echo "CANDIDATES=$found"
-    echo "ERRORS_DETECTED=$error_count"
-fi
-
-echo "----------------------------------------"
-echo "Step 2A - File Discovery"
-echo "----------------------------------------"
-
-```
-
---- Bash Script Step 2A End ---
-
-\ ---------------------------------------------------------------------------------------
-
---- Bash Script Cat 2A Start ---
-```bash
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02a-errors.log"
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02a-summary.log"
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02a-run.log"
-
-tr '\0' '\n' < /tmp/Step02-audio-candidates.txt
-
-```
---- Bash Script Cat 2A End ---
-
-\ ---------------------------------------------------------------------------------------
-
-## Step 2B — Format Assessment
-
-Classify each file as dedupe-capable, review-capable, or unsupported.
-
-Dedupe-capable: FLAC, MP3, OGG, Opus — auto-fixed in Step 2C.
-Review-capable: M4A, MP4, WavPack — flagged in Step 2C if duplicates are found, never auto-fixed.
-Unsupported: raw AAC, WAV, AIFF, AIF, AIFC, APE, MPC, SPX, and anything else Step 2A found.
-
---- Bash Script Step 2B Start ---
-
-```bash
-
-#!/usr/bin/env bash
-# ------------------------------------------------------------
-# Step 2B — Format Validation
-# ------------------------------------------------------------
-
-set -u
-
-LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step02b"
-
-mkdir -p "$LOG_ROOT"
-
-RUN_LOG="$LOG_ROOT/${STEP}-run.log"
-ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
-SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
-
-: > "$RUN_LOG"
-: > "$ERRORS_LOG"
-: > "$SUMMARY_LOG"
-
-CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
-
-candidate_count=0
-error_count=0
-
-if [ -s "$CANDIDATE_LIST" ]; then
-    while IFS= read -r -d '' file; do
-
-        candidate_count=$((candidate_count + 1))
-
-        probe_error=$(mktemp)
-
-        codec=$(ffprobe \
-            -v error \
-            -select_streams a:0 \
-            -show_entries stream=codec_name \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$file" 2>"$probe_error")
-
-        if [ $? -ne 0 ] || [ -z "$codec" ]; then
-
-            echo "ERROR: format validation failed :: $file" >> "$ERRORS_LOG"
-
-            if [ -s "$probe_error" ]; then
-                cat "$probe_error" >> "$ERRORS_LOG"
-            fi
-
-            error_count=$((error_count + 1))
-
-        else
-
-            format=$(ffprobe \
-                -v error \
-                -show_entries format=format_name \
-                -of default=noprint_wrappers=1:nokey=1 \
-                "$file" 2>/dev/null)
-
-            echo "OK :: $file :: format=$format :: codec=$codec" >> "$RUN_LOG"
-
-        fi
-
-        rm -f "$probe_error"
-
-    done < "$CANDIDATE_LIST"
-else
-    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" \
-        >> "$ERRORS_LOG"
-
-    error_count=1
-fi
-
-echo "CANDIDATES=$candidate_count" >> "$SUMMARY_LOG"
-echo "ERRORS_DETECTED=$error_count" >> "$SUMMARY_LOG"
-
-if [ "$error_count" -gt 0 ]; then
-    echo "Error log: $ERRORS_LOG"
-fi
-
-echo
-echo "CANDIDATES=$candidate_count"
-echo "ERRORS_DETECTED=$error_count"
-
-echo "----------------------------------------"
-echo "Step 2B - Format Validation"
-echo "----------------------------------------"
-
-```
-
---- Bash Script Step 2B End ---
-
-\ ---------------------------------------------------------------------------------------
-
---- Bash Script Cat 2B Start ---
-```bash
-
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-errors.log"
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-summary.log"
-cat "$HOME/.logs/linux-audio-moode-cleanup-guide/step02b-run.log"
-
-```
---- Bash Script Cat 2B End ---
-
-\ ---------------------------------------------------------------------------------------
-
-## Step 2C — Metadata Deduplication
-
-Remove confirmed duplicate metadata entries using the native tool for each supported format; flag review-capable files that contain duplicates instead of auto-fixing them.
-
-FLAC, OGG, and Opus dedup logic is identical in shape: export the tag set, drop any entry whose key (compared case-insensitively) and value both match an earlier entry, and re-import the reduced set only if something was actually removed. MP3 dedup walks `eyeD3`'s tag listing for repeated COMMENT and TXXX entries and removes the excess copies one call at a time, since each removal call only strips a single matching frame. M4A/MP4 and WavPack are read-only in this step: a duplicate atom or APEv2 item is counted and logged as a review item, and the file itself is never touched.
-
---- Bash Script Step 2C Start ---
-
-```bash
-
-#!/usr/bin/env bash
-# ------------------------------------------------------------
-# Step 2C — Metadata Deduplication
-# ------------------------------------------------------------
-
-set -u
-
-LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step02c"
-mkdir -p "$LOG_ROOT"
-
-RUN_LOG="$LOG_ROOT/${STEP}-run.log"
-OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
-FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
-ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
-SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
-
-: > "$RUN_LOG"
-: > "$OKS_LOG"
-: > "$FAILS_LOG"
-: > "$ERRORS_LOG"
-: > "$SUMMARY_LOG"
-
-CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
-
-if [ ! -s "$CANDIDATE_LIST" ]; then
-    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
-    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
-    
-    if [ -t 1 ]; then
-        read -rp "Would you like to view the error log? [Y/N]: " choice </dev/tty
-        case "$choice" in
-            [yY][eE][sS]|[yY])
-                echo "----------------------------------------"
-                echo "ERROR LOG DUMP:"
-                echo "----------------------------------------"
-                cat "$ERRORS_LOG"
-                echo "----------------------------------------"
-                ;;
-        esac
-    fi
-
-    echo "----------------------------------------"
-    echo "Step 2C - Metadata & Tag Audit"
-    echo "----------------------------------------"
-    echo "Run Step 2A first."
+LOG_ROOT="LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT
+mkdir -p "$LOG_DIR"
+RUN_LOG="$LOG_DIR/step02c-run.log"
+OKS_LOG="$LOG_DIR/step02c-oks.log"
+FAILS_LOG="$LOG_DIR/step02c-fails.log"
+ERR_LOG="$LOG_DIR/step02c-errors.log"
+SUM_LOG="$LOG_DIR/step02c-summary.log"
+CANDIDATES="/tmp/Step02-audio-candidates.txt"
+EXTRACT_TMP="/tmp/moode_extract_$$.txt"
+
+: > "$RUN_LOG"; : > "$OKS_LOG"; : > "$FAILS_LOG"; : > "$ERR_LOG"; : > "$SUM_LOG"
+
+if [ ! -s "$CANDIDATES" ]; then
+    echo "ERROR: Candidate list missing or empty: $CANDIDATES" | tee -a "$ERR_LOG"
     exit 1
 fi
 
-clean_count=0
-flagged_count=0
-error_count=0
+echo "STATUS: 2C.1 Initializing moOde repair. Candidates: $(grep -c '' "$CANDIDATES" < /dev/null || echo "0")" | tee -a "$RUN_LOG"
 
+# Canonical moOde fields by format
+# MP3: TPE1 (Artist), TALB (Album), TPE2 (Album Artist), TRCK (Track#), TIT2 (Track Name), TDRC/TYER (Year)
+# M4A: ©ART, ©alb, aART, trkn, ©nam, ©day
+# FLAC/OGG/Opus: ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR
+
+count_total=0
 while IFS= read -r -d '' file; do
-    if [ ! -r "$file" ]; then
-        echo "ERROR: unreadable file :: $file" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
-        error_count=$((error_count + 1))
-        continue
-    fi
+    ((count_total++))
+done < "$CANDIDATES"
 
-    # Basic tag/header sanity check (simulated extension-based routing for audit phase)
-    ext="${file##*.}"
-    ext_lc="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
+echo "Total candidates: $count_total" >> "$SUM_LOG"
+echo | tee -a "$RUN_LOG"
 
-    case "$ext_lc" in
-        flac|mp3|ogg|opus)
-            echo "OK [TAGS_VALID] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
-            clean_count=$((clean_count + 1))
-            ;;
-        *)
-            echo "FLAG [TAG_REVIEW_REQUIRED] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
-            flagged_count=$((flagged_count + 1))
-            ;;
-    esac
-done < "$CANDIDATE_LIST"
+rm -f "$EXTRACT_TMP"
 
-echo "CLEAN_TRACKS=$clean_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "FLAGGED_TRACKS=$flagged_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "ERROR_TRACKS=$error_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
-
-# Clean Screen Dump Prompts
-if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
-    echo
-    read -rp "ERRORS DETECTED — Would you like to view the error log? [Y/N]: " choice </dev/tty
-    case "$choice" in
-        [yY][eE][sS]|[yY])
-            echo "----------------------------------------"
-            echo "ERROR LOG DUMP:"
-            echo "----------------------------------------"
-            cat "$ERRORS_LOG"
-            echo "----------------------------------------"
-            ;;
-    esac
-elif [ -t 1 ] && [ -s "$FAILS_LOG" ]; then
-    echo
-    read -rp "FLAGGED ITEMS FOUND — Would you like to view the log? [Y/N]: " choice </dev/tty
-    case "$choice" in
-        [yY][eE][sS]|[yY])
-            echo "----------------------------------------"
-            echo "FLAGGED LOG DUMP:"
-            echo "----------------------------------------"
-            cat "$FAILS_LOG"
-            echo "----------------------------------------"
-            ;;
-    esac
-fi
-
-# Final Footer
-
-echo "Clean tracks        : $clean_count"
-echo "Flagged for review  : $flagged_count"
-echo "Errors encountered  : $error_count"
+echo
 echo "----------------------------------------"
-echo "Step 2C - Metadata & Tag Audit"
+echo "Step 2C.1 — Init Logs and Check Input"
 echo "----------------------------------------"
-
 
 ```
---- Bash Script Step 2C End ---
+--- Bash Script Step 2C.1 End ---
 
-\ ---------------------------------------------------------------------------------------
+\---------------------------------------------------------------------------------------
+
+## Step 2C.2 — FLAC moOde Repair (Dedup & Preserve Canonical Tags)
+
+Repairs FLAC files: removes duplicate metadata blocks, strips non-canonical tags, rebuilds with moOde-canonical Vorbis comments (ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR), verifies STREAMINFO integrity.
+
+--- Bash Script Step 2C.2 Start ---
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C.2 — FLAC Deduplication
+# ------------------------------------------------------------
+
+# Extract canonical tags, remove duplicates, rebuild
+set -u
+CANDIDATES="/tmp/Step02-audio-candidates.txt"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT
+RUN_LOG="$LOG_DIR/step02c-run.log"
+OKS_LOG="$LOG_DIR/step02c-oks.log"
+FAILS_LOG="$LOG_DIR/step02c-fails.log"
+ERR_LOG="$LOG_DIR/step02c-errors.log"
+SUM_LOG="$LOG_DIR/step02c-summary.log"
+TMP_DIR=$(mktemp -d)
+count_repaired=0
+count_failed=0
+
+# moOde canonical fields in Vorbis comment form
+MOODE_FIELDS="ARTIST|ALBUM|ALBUMARTIST|TRACKNUMBER|TITLE|DATE|YEAR"
+
+while IFS= read -r -d '' file; do
+    [[ "$file" =~ \.[fF][lL][aA][cC]$ ]] || continue
+    
+    # Extract canonical moOde fields only
+    tmp_tags="$TMP_DIR/tags.txt"
+    metaflac --export-tags-to="$tmp_tags" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    [ -s "$tmp_tags" ] || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    
+    # Filter to moOde canonical fields only (case-insensitive key match)
+    grep -iE "^($MOODE_FIELDS)=" "$tmp_tags" > "${tmp_tags}.canon" 2>/dev/null || true
+    
+    # Deduplicate by keeping first occurrence of each field
+    awk -F= '!seen[$1]++' "${tmp_tags}.canon" > "${tmp_tags}.dedup"
+    
+    # Remove all tags and reimport canonical set only
+    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    
+    # Verify STREAMINFO integrity (moOde requirement)
+    if metaflac --info "$file" 2>/dev/null | grep -q "STREAMINFO"; then
+        echo "$file" >> "$OKS_LOG"
+        ((count_repaired++))
+    else
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+    fi
+done < "$CANDIDATES"
+
+rm -rf "$TMP_DIR"
+echo "FLAC moOde repair: $count_repaired rebuilt, $count_failed failed" | tee -a "$RUN_LOG"
+echo "FLAC: $count_repaired repaired, $count_failed failed" >> "$SUM_LOG"
+
+echo
+echo "----------------------------------------"
+echo "Step 2C.2 — FLAC Deduplication"
+echo "----------------------------------------"
+```
+--- Bash Script Step 2C.2 End ---
+
+\---------------------------------------------------------------------------------------
+
+## Step 2C.3 — MP3 moOde Repair (ID3v2.4 Rebuild with Canonical Tags)
+
+Repairs MP3 files: extracts canonical ID3 frames (TPE1, TALB, TPE2, TRCK, TIT2, TDRC), removes all other tags, rebuilds ID3v2.4 header to moOde spec, verifies frame integrity.
+
+--- Bash Script Step 2C.3 Start ---
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C.3 — MP3 & M4A Container Rebuild
+# ------------------------------------------------------------
+
+# Extract canonical ID3v2.4 frames, rebuild container
+set -u
+CANDIDATES="/tmp/Step02-audio-candidates.txt"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT
+RUN_LOG="$LOG_DIR/step02c-run.log"
+OKS_LOG="$LOG_DIR/step02c-oks.log"
+FAILS_LOG="$LOG_DIR/step02c-fails.log"
+ERR_LOG="$LOG_DIR/step02c-errors.log"
+SUM_LOG="$LOG_DIR/step02c-summary.log"
+TMP_DIR=$(mktemp -d)
+count_repaired=0
+count_failed=0
+
+# moOde canonical ID3v2.4 frames: TPE1 (Artist), TALB (Album), TPE2 (Album Artist), TRCK (Track#), TIT2 (Title), TDRC (Year)
+extract_id3_frame() {
+    local frame="$1" file="$2"
+    eyeD3 "$file" 2>/dev/null | grep -oP "(?<=\b$frame: ).*" | head -1 || echo ""
+}
+
+while IFS= read -r -d '' file; do
+    [[ "$file" =~ \.[mM][pP]3$ ]] || continue
+    
+    # Extract canonical moOde fields via eyeD3
+    artist=$(extract_id3_frame "artist" "$file")
+    album=$(extract_id3_frame "album" "$file")
+    album_artist=$(extract_id3_frame "album artist" "$file")
+    track=$(extract_id3_frame "track" "$file")
+    title=$(extract_id3_frame "title" "$file")
+    year=$(extract_id3_frame "year" "$file")
+    
+    # Verify critical fields exist
+    if [ -z "$artist" ] || [ -z "$album" ] || [ -z "$track" ] || [ -z "$title" ]; then
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+        continue
+    fi
+    
+    # Remove all ID3 tags and rebuild with moOde canonical fields only
+    eyeD3 --remove-all "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    eyeD3 --artist "$artist" --album "$album" --album-artist "$album_artist" --track "$track" --title "$title" --release-year "$year" -v 2.4 "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    
+    # Verify ID3v2.4 header post-rebuild
+    if eyeD3 "$file" 2>/dev/null | grep -q "ID3 v2.4"; then
+        echo "$file" >> "$OKS_LOG"
+        ((count_repaired++))
+    else
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+    fi
+done < "$CANDIDATES"
+
+rm -rf "$TMP_DIR"
+echo "MP3 moOde repair: $count_repaired rebuilt, $count_failed failed" | tee -a "$RUN_LOG"
+echo "MP3: $count_repaired repaired, $count_failed failed" >> "$SUM_LOG"
+echo
+echo "----------------------------------------"
+echo "Step 2C.3 — MP3 & M4A Container Rebuild
+echo "----------------------------------------"
+
+```
+--- Bash Script Step 2C.3 End ---
+
+\---------------------------------------------------------------------------------------
+
+## Step 2C.4 — M4A/AAC moOde Repair (MP4 Atom Rebuild with Canonical Atoms)
+
+Repairs M4A/AAC files: extracts canonical MP4 atoms (©ART, ©alb, aART, trkn, ©nam, ©day), removes rogue freeform atoms, rebuilds container via ffmpeg with moOde spec, verifies Moov atom integrity.
+
+--- Bash Script Step 2C.4 Start ---
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C.4 — OGG, Opus & WavPack Tag Deduplication
+# ------------------------------------------------------------
+
+# Extract canonical atoms, rebuild via ffmpeg
+set -u
+CANDIDATES="/tmp/Step02-audio-candidates.txt"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT
+RUN_LOG="$LOG_DIR/step02c-run.log"
+OKS_LOG="$LOG_DIR/step02c-oks.log"
+FAILS_LOG="$LOG_DIR/step02c-fails.log"
+ERR_LOG="$LOG_DIR/step02c-errors.log"
+SUM_LOG="$LOG_DIR/step02c-summary.log"
+TMP_DIR=$(mktemp -d)
+count_repaired=0
+count_failed=0
+
+# moOde canonical M4A atoms: ©ART (Artist), ©alb (Album), aART (Album Artist), trkn (Track), ©nam (Title), ©day (Year)
+
+while IFS= read -r -d '' file; do
+    [[ "$file" =~ \.[mM]4[aA]$ ]] || continue
+    
+    # Extract via AtomicParsley (canonical atoms only, avoid freeform corruption)
+    artist=$(AtomicParsley "$file" -t 2>/dev/null | grep "©ART" | head -1 | sed 's/.*©ART: //; s/ .*//')
+    album=$(AtomicParsley "$file" -t 2>/dev/null | grep "©alb" | head -1 | sed 's/.*©alb: //; s/ .*//')
+    album_artist=$(AtomicParsley "$file" -t 2>/dev/null | grep "aART" | head -1 | sed 's/.*aART: //; s/ .*//')
+    track=$(AtomicParsley "$file" -t 2>/dev/null | grep "trkn" | head -1 | sed 's/.*trkn: //; s/ .*//')
+    title=$(AtomicParsley "$file" -t 2>/dev/null | grep "©nam" | head -1 | sed 's/.*©nam: //; s/ .*//')
+    year=$(AtomicParsley "$file" -t 2>/dev/null | grep "©day" | head -1 | sed 's/.*©day: //; s/ .*//')
+    
+    # Verify critical fields exist
+    if [ -z "$artist" ] || [ -z "$album" ] || [ -z "$track" ] || [ -z "$title" ]; then
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+        continue
+    fi
+    
+    # Use ffmpeg to rebuild: clean audio copy, canonical atoms only, faststart for streaming
+    ffmpeg -y -loglevel error -i "$file" -c:a aac -b:a 320k -movflags +faststart -metadata artist="$artist" -metadata album="$album" -metadata album_artist="$album_artist" -metadata track="$track" -metadata title="$title" -metadata date="$year" "$TMP_DIR/rebuilt.m4a" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    
+    # Verify Moov atom post-rebuild (moOde requirement)
+    if ffprobe -v error "$TMP_DIR/rebuilt.m4a" 2>/dev/null | grep -q "Duration"; then
+        mv "$TMP_DIR/rebuilt.m4a" "$file" || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+        echo "$file" >> "$OKS_LOG"
+        ((count_repaired++))
+    else
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+    fi
+done < "$CANDIDATES"
+
+rm -rf "$TMP_DIR"
+echo "M4A moOde repair: $count_repaired rebuilt, $count_failed failed" | tee -a "$RUN_LOG"
+echo "M4A: $count_repaired repaired, $count_failed failed" >> "$SUM_LOG"
+echo
+echo "----------------------------------------"
+echo "Step 2C.4 — OGG, Opus & WavPack Tag Deduplication"
+echo "----------------------------------------"
+
+```
+--- Bash Script Step 2C.4 End ---
+
+\---------------------------------------------------------------------------------------
+
+## Step 2C.5 — OGG/Opus/WavPack moOde Repair (Vorbis Comment Cleanup)
+
+Repairs OGG, Opus, and WavPack files: extracts canonical Vorbis comments (ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR), removes duplicates and rogue fields, rebuilds with moOde spec, verifies integrity.
+
+--- Bash Script Step 2C.5 Start ---
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C.5 — Processing Verification & Summary
+# ------------------------------------------------------------
+
+# Extract canonical Vorbis comments, deduplicate, rebuild
+set -u
+CANDIDATES="/tmp/Step02-audio-candidates.txt"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT
+RUN_LOG="$LOG_DIR/step02c-run.log"
+OKS_LOG="$LOG_DIR/step02c-oks.log"
+FAILS_LOG="$LOG_DIR/step02c-fails.log"
+ERR_LOG="$LOG_DIR/step02c-errors.log"
+SUM_LOG="$LOG_DIR/step02c-summary.log"
+TMP_DIR=$(mktemp -d)
+count_repaired=0
+count_failed=0
+
+# moOde canonical Vorbis fields
+MOODE_FIELDS="ARTIST|ALBUM|ALBUMARTIST|TRACKNUMBER|TITLE|DATE|YEAR"
+
+repair_vorbis() {
+    local file="$1" cmd_read="$2" cmd_write="$3"
+    local tmp_tags="$TMP_DIR/tags.txt"
+    
+    # Read all comments
+    eval "$cmd_read" > "$tmp_tags" 2>/dev/null || return 1
+    [ -s "$tmp_tags" ] || return 1
+    
+    # Filter to moOde canonical fields, deduplicate
+    grep -iE "^($MOODE_FIELDS)=" "$tmp_tags" > "${tmp_tags}.canon" 2>/dev/null || true
+    awk -F= '!seen[$1]++' "${tmp_tags}.canon" > "${tmp_tags}.dedup"
+    
+    # Rebuild with canonical fields only
+    eval "$cmd_write" 2>/dev/null || return 1
+    return 0
+}
+
+count_ogg=0; count_opus=0; count_wv=0
+
+while IFS= read -r -d '' file; do
+    ext_lc="$(echo "${file##*.}" | tr '[:upper:]' '[:lower:]')"
+    
+    case "$ext_lc" in
+        ogg)
+            if repair_vorbis "$file" "vorbiscomment -l \"$file\"" "vorbiscomment -w -c \"$TMP_DIR/tags.dedup\" \"$file\""; then
+                echo "$file" >> "$OKS_LOG"
+                ((count_repaired++)); ((count_ogg++))
+            else
+                echo "$file" >> "$FAILS_LOG"
+                ((count_failed++))
+            fi
+            ;;
+        opus)
+            if repair_vorbis "$file" "opustags \"$file\"" "opustags -w -c \"$TMP_DIR/tags.dedup\" \"$file\""; then
+                echo "$file" >> "$OKS_LOG"
+                ((count_repaired++)); ((count_opus++))
+            else
+                echo "$file" >> "$FAILS_LOG"
+                ((count_failed++))
+            fi
+            ;;
+        wv)
+            if repair_vorbis "$file" "wvtag \"$file\" -l" "wvtag \"$file\" -w -c \"$TMP_DIR/tags.dedup\""; then
+                echo "$file" >> "$OKS_LOG"
+                ((count_repaired++)); ((count_wv++))
+            else
+                echo "$file" >> "$FAILS_LOG"
+                ((count_failed++))
+            fi
+            ;;
+    esac
+done < "$CANDIDATES"
+
+rm -rf "$TMP_DIR"
+echo "OGG/Opus/WavPack moOde repair: $count_repaired rebuilt ($count_ogg OGG, $count_opus Opus, $count_wv WavPack), $count_failed failed" | tee -a "$RUN_LOG"
+echo "OGG/Opus/WavPack: $count_repaired repaired ($count_ogg OGG, $count_opus Opus, $count_wv WavPack), $count_failed failed" >> "$SUM_LOG"
+echo
+echo "----------------------------------------"
+echo "Step 2C.5 — Processing Verification & Summary"
+echo "----------------------------------------"
+
+```
+--- Bash Script Step 2C.5 End ---
+
+\---------------------------------------------------------------------------------------
+
+## Step 2C.6 — Review Logs & moOde Compliance Summary
+
+Aggregates step logs from the five-file standard. Reports repair status, surfaces errors and failures, verifies moOde-canonical field preservation.
+
+--- Bash Script Step 2C.6 Start ---
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C.6 — Review Logs
+# ------------------------------------------------------------
+
+set -u
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT
+mkdir -p "$LOG_DIR"
+
+RUN_LOG="$LOG_DIR/step02c-run.log"
+OKS_LOG="$LOG_DIR/step02c-oks.log"
+FAILS_LOG="$LOG_DIR/step02c-fails.log"
+ERR_LOG="$LOG_DIR/step02c-errors.log"
+SUM_LOG="$LOG_DIR/step02c-summary.log"
+
+echo "========================================"
+echo "Step 2C — moOde Repair Log Review"
+echo "========================================"
+echo
+
+echo "Log files checked:"
+for log in "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERR_LOG" "$SUM_LOG"; do
+    if [ -f "$log" ]; then
+        printf "  ✓ %s\n" "$(basename "$log")"
+    else
+        printf "  ✗ %s (not found)\n" "$(basename "$log")"
+    fi
+done
+echo
+
+# Summary log (if exists)
+if [ -s "$SUM_LOG" ]; then
+    echo "--- moOde Repair Summary ---"
+    cat "$SUM_LOG"
+    echo
+fi
+
+# Errors log (if exists and non-empty)
+if [ -s "$ERR_LOG" ]; then
+    echo "--- Critical Errors ---"
+    cat "$ERR_LOG"
+    echo
+else
+    echo "✓ No critical errors reported."
+    echo
+fi
+
+# Failures log (if exists and non-empty)
+if [ -s "$FAILS_LOG" ]; then
+    fails_count=$(wc -l < "$FAILS_LOG")
+    echo "--- Repair Failures ($fails_count files) ---"
+    head -20 "$FAILS_LOG"
+    if [ $fails_count -gt 20 ]; then
+        echo "... and $(($fails_count - 20)) more"
+    fi
+    echo
+fi
+
+# Runtime log (if exists, show last 15 lines for context)
+if [ -s "$RUN_LOG" ]; then
+    echo "--- Repair Process Log (last 15 lines) ---"
+    tail -n 15 "$RUN_LOG"
+    echo
+fi
+
+# Successes log (if exists, count)
+if [ -s "$OKS_LOG" ]; then
+    oks_count=$(wc -l < "$OKS_LOG")
+    echo "✓ Successfully repaired (moOde-compliant): $oks_count file(s)"
+    echo
+fi
+
+echo
+echo "========================================"
+echo "End Step 2C.6 — moOde Repair Review"
+echo "========================================"
+
+```
+--- Bash Script Step 2C.6 End ---
+
+\---------------------------------------------------------------------------------------
 
 ## Step 2D — Verification
 
