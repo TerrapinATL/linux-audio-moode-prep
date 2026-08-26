@@ -1650,7 +1650,7 @@ No files are modified during this step.
 set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step01"
+STEP="step06"
 
 mkdir -p "$LOG_ROOT"
 
@@ -1922,7 +1922,7 @@ No files are modified during this step.
 set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step01"
+STEP="step08"
 
 mkdir -p "$LOG_ROOT"
 
