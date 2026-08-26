@@ -165,11 +165,19 @@ mapfile -d '' files < <(
 
 total=${#files[@]}
 i=0
+last_dir=""
 
 for f in "${files[@]}"; do
 
     ((i++))
     label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
+
+    # Insert a blank line on terminal screen when moving to a new folder/album
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        echo ""
+    fi
+    last_dir="$current_dir"
 
     case "${f,,}" in
         *.flac)
@@ -183,10 +191,16 @@ for f in "${files[@]}"; do
     esac
 
     if [ $rc -eq 0 ]; then
-        echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OKS_LOG"
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
     else
-        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
-        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAILS_LOG"
+        flat=$(echo "$err" | sed -e 's/[\r\n]/ /g' -e 's/  */ /g')
+        out_msg="FAIL [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
         echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
     fi
 
@@ -196,7 +210,7 @@ done
 ok_count=$(grep -a -c "^OK" "$RUN_LOG" 2>/dev/null || echo 0)
 fail_count=$(grep -a -c "^FAIL" "$RUN_LOG" 2>/dev/null || echo 0)
 
-# 6. Generate Summary
+# 6. Generate Summary Log
 {
 echo "Step 1 Summary"
 echo "=============="
@@ -213,50 +227,46 @@ echo "Failed     : $fail_count"
 echo
 if [ -s "$ERRORS_LOG" ]; then
     echo "----------------------------------------"
-    echo "Errors"
+    echo "Error Summary"
     echo "----------------------------------------"
-    cat "$ERRORS_LOG"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
 fi
 
-awk '
-/LOST_SYNC/ {
-    idx = index($0, " :: ")
-    if (idx > 0) {
-        temp = substr($0, 1, idx - 1)
-        pos = index(temp, "): ") + 3
-        path = substr(temp, pos)
-        lost_sync[path] = 1
-    }
-}
-/END_OF_STREAM/ && !/LOST_SYNC/ {
-    idx = index($0, " :: ")
-    if (idx > 0) {
-        temp = substr($0, 1, idx - 1)
-        pos = index(temp, "): ") + 3
-        path = substr(temp, pos)
-        eos[path] = 1
-    }
-}
-END {
-    if (length(lost_sync) > 0) {
-        print "LOST_SYNC"
-        print "----------"
-        for (p in lost_sync) print p | "sort"
-        close("sort")
-    }
-    if (length(eos) > 0) {
-        print ""
-        print "END_OF_STREAM"
-        print "----------"
-        for (p in eos) print p | "sort"
-        close("sort")
-    }
-}
-' "$HOME/.logs/linux-audio-moode-cleanup-guide/step01-errors.log"
-
-
-
-
+echo
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
 echo "----------------------------------------"
@@ -1286,11 +1296,19 @@ mapfile -d '' files < <(
 
 total=${#files[@]}
 i=0
+last_dir=""
 
 for f in "${files[@]}"; do
 
     ((i++))
     label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
+
+    # Insert a blank line on terminal screen when moving to a new folder/album
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        echo ""
+    fi
+    last_dir="$current_dir"
 
     case "${f,,}" in
         *.flac)
@@ -1304,10 +1322,16 @@ for f in "${files[@]}"; do
     esac
 
     if [ $rc -eq 0 ]; then
-        echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OKS_LOG"
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
     else
-        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
-        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAILS_LOG"
+        flat=$(echo "$err" | sed -e 's/[\r\n]/ /g' -e 's/  */ /g')
+        out_msg="FAIL [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
         echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
     fi
 
@@ -1317,7 +1341,7 @@ done
 ok_count=$(grep -a -c "^OK" "$RUN_LOG" 2>/dev/null || echo 0)
 fail_count=$(grep -a -c "^FAIL" "$RUN_LOG" 2>/dev/null || echo 0)
 
-# 6. Generate Summary
+# 6. Generate Summary Log
 {
 echo "Step 4 Summary"
 echo "=============="
@@ -1334,10 +1358,46 @@ echo "Failed     : $fail_count"
 echo
 if [ -s "$ERRORS_LOG" ]; then
     echo "----------------------------------------"
-    echo "Errors"
+    echo "Error Summary"
     echo "----------------------------------------"
-    cat "$ERRORS_LOG"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
 fi
+
+echo
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
 echo "----------------------------------------"
@@ -1590,7 +1650,7 @@ No files are modified during this step.
 set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step06"
+STEP="step01"
 
 mkdir -p "$LOG_ROOT"
 
@@ -1623,11 +1683,19 @@ mapfile -d '' files < <(
 
 total=${#files[@]}
 i=0
+last_dir=""
 
 for f in "${files[@]}"; do
 
     ((i++))
     label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
+
+    # Insert a blank line on terminal screen when moving to a new folder/album
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        echo ""
+    fi
+    last_dir="$current_dir"
 
     case "${f,,}" in
         *.flac)
@@ -1641,10 +1709,16 @@ for f in "${files[@]}"; do
     esac
 
     if [ $rc -eq 0 ]; then
-        echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OKS_LOG"
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
     else
-        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
-        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAILS_LOG"
+        flat=$(echo "$err" | sed -e 's/[\r\n]/ /g' -e 's/  */ /g')
+        out_msg="FAIL [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
         echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
     fi
 
@@ -1654,7 +1728,7 @@ done
 ok_count=$(grep -a -c "^OK" "$RUN_LOG" 2>/dev/null || echo 0)
 fail_count=$(grep -a -c "^FAIL" "$RUN_LOG" 2>/dev/null || echo 0)
 
-# 6. Generate Summary
+# 6. Generate Summary Log
 {
 echo "Step 6 Summary"
 echo "=============="
@@ -1671,10 +1745,46 @@ echo "Failed     : $fail_count"
 echo
 if [ -s "$ERRORS_LOG" ]; then
     echo "----------------------------------------"
-    echo "Errors"
+    echo "Error Summary"
     echo "----------------------------------------"
-    cat "$ERRORS_LOG"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
 fi
+
+echo
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
 echo "----------------------------------------"
@@ -1812,7 +1922,7 @@ No files are modified during this step.
 set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step08"
+STEP="step01"
 
 mkdir -p "$LOG_ROOT"
 
@@ -1845,11 +1955,19 @@ mapfile -d '' files < <(
 
 total=${#files[@]}
 i=0
+last_dir=""
 
 for f in "${files[@]}"; do
 
     ((i++))
     label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
+
+    # Insert a blank line on terminal screen when moving to a new folder/album
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        echo ""
+    fi
+    last_dir="$current_dir"
 
     case "${f,,}" in
         *.flac)
@@ -1863,10 +1981,16 @@ for f in "${files[@]}"; do
     esac
 
     if [ $rc -eq 0 ]; then
-        echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OKS_LOG"
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
     else
-        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
-        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAILS_LOG"
+        flat=$(echo "$err" | sed -e 's/[\r\n]/ /g' -e 's/  */ /g')
+        out_msg="FAIL [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
         echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
     fi
 
@@ -1876,7 +2000,7 @@ done
 ok_count=$(grep -a -c "^OK" "$RUN_LOG" 2>/dev/null || echo 0)
 fail_count=$(grep -a -c "^FAIL" "$RUN_LOG" 2>/dev/null || echo 0)
 
-# 6. Generate Summary
+# 6. Generate Summary Log
 {
 echo "Step 8 Summary"
 echo "=============="
@@ -1893,10 +2017,46 @@ echo "Failed     : $fail_count"
 echo
 if [ -s "$ERRORS_LOG" ]; then
     echo "----------------------------------------"
-    echo "Errors"
+    echo "Error Summary"
     echo "----------------------------------------"
-    cat "$ERRORS_LOG"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
 fi
+
+echo
 echo "----------------------------------------"
 echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
 echo "----------------------------------------"
