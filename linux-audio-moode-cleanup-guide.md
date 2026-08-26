@@ -2830,4 +2830,7 @@ Once you have reviewed the final logs, verified that your master library is full
 
 -- Disclaimer
 
-This guide was developed through iterative collaborative effort between Claude, Gemini, ChatGPT, and the user. Claude provided refinement and technical writing in the final stages.
+This guide was developed through iterative collaborative effort between ChatGPT, Claude, Gemini, Mistral and the user. 
+
+
+
