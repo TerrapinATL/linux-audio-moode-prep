@@ -621,7 +621,7 @@ step02c_preflight() {
     fi
 
     # Handle missing binaries gracefully
-    echo "CRITICAL ERROR: Step 2C PreFlight Check Failed." >&2
+    echo "CRITICAL ERROR: Step 2C.0 PreFlight Check Failed." >&2
     echo "The following required CLI tools are missing:" >&2
     echo -e "$MISSING_TOOLS" >&2
     
@@ -656,7 +656,7 @@ step02c_preflight() {
             fi
             ;;
         *)
-            echo "PreFlight skipped. Halting Step 2C sequence." >&2
+            echo "PreFlight skipped. Halting Step 2C.0 sequence." >&2
             return 1
             ;;
     esac
@@ -664,7 +664,7 @@ step02c_preflight() {
 
 # Execute function
 step02c_preflight
-echo "Step 2C.1 — Init Logs and Check Input"
+echo "Step 2C.0 — PreFlight Dependency Check & Package Helper"
 echo "----------------------------------------"
 
 ```
