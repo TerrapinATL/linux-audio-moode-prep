@@ -665,9 +665,18 @@ if [ "$count_total" -eq 0 ]; then
     exit 0
 fi
 
-# Second pass: process files with progress
+# Build processing queue with artist/album/track info and sort
+declare -a queue
 while IFS= read -r -d '' file; do
     [[ "$file" =~ \.[fF][lL][aA][cC]$ ]] || continue
+    queue+=("$file")
+done < "$CANDIDATES"
+
+# Sort queue by path (artist/album/track order)
+mapfile -t queue < <(printf '%s\n' "${queue[@]}" | sort)
+
+# Second pass: process files with progress
+for file in "${queue[@]}"; do
     ((count_processed++))
     pct=$((count_processed * 100 / count_total))
     status="FAIL"
@@ -677,6 +686,14 @@ while IFS= read -r -d '' file; do
     metaflac --export-tags-to="$tmp_tags" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
     [ -s "$tmp_tags" ] || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
     
+    # Extract artist/album/track for display
+    artist=$(grep -iE "^ARTIST=" "$tmp_tags" | cut -d= -f2- | head -1)
+    album=$(grep -iE "^ALBUM=" "$tmp_tags" | cut -d= -f2- | head -1)
+    track=$(grep -iE "^TRACKNUMBER=" "$tmp_tags" | cut -d= -f2- | head -1)
+    [ -z "$artist" ] && artist="[Unknown Artist]"
+    [ -z "$album" ] && album="[Unknown Album]"
+    [ -z "$track" ] && track="[No Track#]"
+    
     # Filter to moOde canonical fields only (case-insensitive key match)
     grep -iE "^($MOODE_FIELDS)=" "$tmp_tags" > "${tmp_tags}.canon" 2>/dev/null || true
     
@@ -684,11 +701,11 @@ while IFS= read -r -d '' file; do
     awk -F= '!seen[$1]++' "${tmp_tags}.canon" > "${tmp_tags}.dedup"
     
     # Remove all tags and reimport canonical set only
-    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
-    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
+    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s / %s / %s\n" "$count_processed" "$count_total" "$pct" "$artist" "$album" "$track"; continue; }
+    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s / %s / %s\n" "$count_processed" "$count_total" "$pct" "$artist" "$album" "$track"; continue; }
     
     # Verify STREAMINFO integrity (moOde requirement)
-    if metaflac --info "$file" 2>/dev/null | grep -q "STREAMINFO"; then
+    if metaflac --list "$file" 2>/dev/null | grep -q "type: 0 (STREAMINFO)"; then
         echo "$file" >> "$OKS_LOG"
         ((count_repaired++))
         status="OK"
@@ -697,8 +714,8 @@ while IFS= read -r -d '' file; do
         ((count_failed++))
         status="FAIL"
     fi
-    printf "[%d/%d] %3d%% [%s] %s\n" "$count_processed" "$count_total" "$pct" "$status" "$(basename "$file")"
-done < "$CANDIDATES"
+    printf "[%d/%d] %3d%% [%s] %s / %s / %s\n" "$count_processed" "$count_total" "$pct" "$status" "$artist" "$album" "$track"
+done
 
 rm -rf "$TMP_DIR"
 echo
