@@ -383,6 +383,220 @@ $HOME/.logs/linux-audio-moode-cleanup-guide/step02<letter>-summary.log    final 
 
 Every per-file line is written with `tee -a` at the point it happens, to `run.log` and to whichever of `oks.log` / `fails.log` applies. Files needing manual review (M4A/AAC and WavPack duplicates) are logged to `fails.log` with a `REVIEW` tag rather than `FAIL`, so they surface as a punch list without being confused with genuine processing failures.
 
+\ ---------------------------------------------------------------------------------------
+
+## Step 2A — File Discovery
+
+Locate all candidate audio files and create the clean input list.
+
+--- Bash Script Step 2A Start ---
+
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2A — File Discovery
+# ------------------------------------------------------------
+
+set -u
+
+TARGET_DIR="${1:-.}"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02a"
+mkdir -p "$LOG_ROOT"
+
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
+
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
+
+CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
+: > "$CANDIDATE_LIST"
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "ERROR: target directory not found :: $TARGET_DIR" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2A - File Discovery"
+    echo "----------------------------------------"
+    
+    # Interactive view for directory target errors
+    if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
+        echo
+        echo "=================================================="
+        echo " ERRORS DETECTED — Press ENTER to view error log"
+        echo " (Use arrow keys to scroll, press 'q' to exit)"
+        echo "=================================================="
+        read -r
+        less -R "$ERRORS_LOG"
+    fi
+    exit 1
+fi
+
+total=0
+found=0
+
+while IFS= read -r -d '' file; do
+    total=$((total + 1))
+    echo "OK [$total] candidate found :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+    printf '%s\0' "$file" >> "$CANDIDATE_LIST"
+    found=$((found + 1))
+done < <(find "$TARGET_DIR" -type f \( \
+    -iname '*.flac' -o -iname '*.mp3' -o -iname '*.m4a' -o -iname '*.mp4' -o \
+    -iname '*.wv' -o -iname '*.ogg' -o -iname '*.opus' -o -iname '*.aac' -o \
+    -iname '*.wav' -o -iname '*.aiff' -o -iname '*.aif' -o -iname '*.aifc' -o \
+    -iname '*.ape' -o -iname '*.mpc' -o -iname '*.spx' \) -print0)
+
+echo "TOTAL_CANDIDATES=$found" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
+
+
+# Interactive error inspector
+if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
+    echo
+    echo "=================================================="
+    echo " ERRORS DETECTED — Press ENTER to view error log"
+    echo " (Use arrow keys to scroll, press 'q' to exit)"
+    echo "=================================================="
+    read -r
+    less -R "$ERRORS_LOG"
+fi
+
+echo "Candidates found: $found"
+echo "----------------------------------------"
+echo "Step 2A - File Discovery"
+echo "----------------------------------------"
+
+```
+
+--- Bash Script Step 2A End ---
+
+\ ---------------------------------------------------------------------------------------
+
+## Step 2B — Format Assessment
+
+Classify each file as dedupe-capable, review-capable, or unsupported.
+
+Dedupe-capable: FLAC, MP3, OGG, Opus — auto-fixed in Step 2C.
+Review-capable: M4A, MP4, WavPack — flagged in Step 2C if duplicates are found, never auto-fixed.
+Unsupported: raw AAC, WAV, AIFF, AIF, AIFC, APE, MPC, SPX, and anything else Step 2A found.
+
+--- Bash Script Step 2B Start ---
+
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2B — Format Check
+# ------------------------------------------------------------
+
+set -u
+
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02b"
+mkdir -p "$LOG_ROOT"
+
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
+
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
+
+CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
+
+if [ ! -s "$CANDIDATE_LIST" ]; then
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    
+    if [ -t 1 ]; then
+        read -rp "Press ENTER to view error log..." </dev/tty
+        less -R "$ERRORS_LOG" </dev/tty
+    fi
+
+    echo "----------------------------------------"
+    echo "Step 2B - Format Assessment"
+    echo "----------------------------------------"
+    echo "Run Step 2A first."
+    exit 1
+fi
+
+supported_count=0
+review_count=0
+unsupported_count=0
+
+while IFS= read -r -d '' file; do
+    if [ ! -r "$file" ]; then
+        echo "ERROR: unreadable file :: $file" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+        continue
+    fi
+
+    ext="${file##*.}"
+    ext_lc="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
+
+    case "$ext_lc" in
+        flac|mp3|ogg|opus)
+            echo "OK [SUPPORTED] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+            supported_count=$((supported_count + 1))
+            ;;
+        m4a|mp4|wv|aac|wav|aiff|aif|aifc|ape|mpc|spx)
+            echo "REVIEW [MANUAL_CHECK] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            review_count=$((review_count + 1))
+            ;;
+        *)
+            echo "FAIL [UNSUPPORTED] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            unsupported_count=$((unsupported_count + 1))
+            ;;
+    esac
+done < "$CANDIDATE_LIST"
+
+echo "SUPPORTED_FORMATS=$supported_count" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "REVIEW_FORMATS=$review_count" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "UNSUPPORTED_FORMATS=$unsupported_count" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
+
+# Open viewer with explicit TTY redirection
+if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
+    echo
+    echo "=================================================="
+    echo " ERRORS DETECTED — Press ENTER to view error log"
+    echo "=================================================="
+    read -r </dev/tty
+    less -R "$ERRORS_LOG" </dev/tty
+elif [ -t 1 ] && [ -s "$FAILS_LOG" ]; then
+    echo
+    echo "=================================================="
+    echo " REVIEW/FAILS FOUND — Press ENTER to view log"
+    echo "=================================================="
+    read -r </dev/tty
+    less -R "$FAILS_LOG" </dev/tty
+fi
+
+# Footer strictly at the absolute end
+
+echo "Supported formats   : $supported_count"
+echo "Review required     : $review_count"
+echo "Unsupported formats : $unsupported_count"
+echo "----------------------------------------"
+echo "Step 2B - Format Assessment"
+echo "----------------------------------------"
+
+```
+
+--- Bash Script Step 2B End ---
+
 \---------------------------------------------------------------------------------------
 
 ## Step 2C — moOde Container & Metadata Repair
@@ -415,23 +629,31 @@ ERR_LOG="$LOG_DIR/step02c-errors.log"
 SUM_LOG="$LOG_DIR/step02c-summary.log"
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 EXTRACT_TMP="/tmp/moode_extract_$$.txt"
+
 : > "$RUN_LOG"; : > "$OKS_LOG"; : > "$FAILS_LOG"; : > "$ERR_LOG"; : > "$SUM_LOG"
+
 if [ ! -s "$CANDIDATES" ]; then
     echo "ERROR: Candidate list missing or empty: $CANDIDATES" | tee -a "$ERR_LOG"
     exit 1
 fi
+
 echo "STATUS: 2C.1 Initializing moOde repair. Candidates: $(grep -c '' "$CANDIDATES" < /dev/null || echo "0")" | tee -a "$RUN_LOG"
+
 # Canonical moOde fields by format
 # MP3: TPE1 (Artist), TALB (Album), TPE2 (Album Artist), TRCK (Track#), TIT2 (Track Name), TDRC/TYER (Year)
 # M4A: ©ART, ©alb, aART, trkn, ©nam, ©day
 # FLAC/OGG/Opus: ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR
+
 count_total=0
 while IFS= read -r -d '' file; do
     ((count_total++))
 done < "$CANDIDATES"
+
 echo "Total candidates: $count_total" >> "$SUM_LOG"
 echo | tee -a "$RUN_LOG"
+
 rm -f "$EXTRACT_TMP"
+
 echo
 echo "----------------------------------------"
 echo "Step 2C.1 — Init Logs and Check Input"
@@ -1642,7 +1864,7 @@ No files are modified during this step.
 set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step06"
+STEP="step01"
 
 mkdir -p "$LOG_ROOT"
 
@@ -1914,7 +2136,7 @@ No files are modified during this step.
 set -u
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-STEP="step08"
+STEP="step01"
 
 mkdir -p "$LOG_ROOT"
 
