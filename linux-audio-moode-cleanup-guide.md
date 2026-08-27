@@ -97,7 +97,7 @@ Optional procedures (Steps 13a–13d) handle edge cases. Files failing all steps
 
 ---
 
-05. Step 1 – Initial Integrity Test
+### 05. Step 1 – Initial Integrity Test
 
 ---
 
@@ -294,7 +294,7 @@ cat "$LOG_ROOT/step01-summary.log"
 
 ---
 
-06. Step 2 — Metadata Deduplication (Fully Functional for All Moode Audio Formats)
+### 06. Step 2 — Metadata Deduplication (Fully Functional for All Moode Audio Formats)
 
 ---
 
@@ -385,7 +385,7 @@ Every per-file line is written with `tee -a` at the point it happens, to `run.lo
 
 \ ---------------------------------------------------------------------------------------
 
-## Step 2A — File Discovery
+### Step 2A — File Discovery
 
 Locate all candidate audio files and create the clean input list.
 
@@ -480,7 +480,7 @@ echo "----------------------------------------"
 
 \ ---------------------------------------------------------------------------------------
 
-## Step 2B — Format Assessment
+### Step 2B — Format Assessment
 
 Classify each file as dedupe-capable, review-capable, or unsupported.
 
@@ -559,7 +559,7 @@ echo "----------------------------------------"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2C — moOde Container & Metadata Repair
+### Step 2C — moOde Container & Metadata Repair
 
 ### ERRORS IN THIS SCRIPT WERE FOUND DURING MY FINAL TEST RUN. ISSUES WITH SOFTWARE NOT BEING PREFLIGHT CHECKED FOR AVAILABILITY, ISSUES WITH THE SCRIPT LOGIC FAILING. I HOPE TO HAVE IT ADDRESSED SOON. THIS BECAME A BIT MORE COMPLICATED THAN ANTICIPATED DUE TO USE OF MARKDOWN FORMAT, BUT THIS IS AN IMPORTANT STEP IN CLEANING UP AUDIO CONTAINER AND METADATA ISSUES.
 
@@ -670,7 +670,7 @@ echo "----------------------------------------"
 --- Bash Script Step 2C.0 End ---
 \---------------------------------------------------------------------------------------
 
-## Step 2C.1 — Initialize & Extract Canonical moOde Fields
+### Step 2C.1 — Initialize & Extract Canonical moOde Fields
 
 Ensures candidate list exists, initializes log files, and performs first-pass metadata extraction to identify canonical moOde fields before any repairs.
 
@@ -730,7 +730,7 @@ echo "----------------------------------------"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2C.2 — FLAC moOde Repair (Dedup & Preserve Canonical Tags)
+### Step 2C.2 — FLAC moOde Repair (Dedup & Preserve Canonical Tags)
 
 Repairs FLAC files: removes duplicate metadata blocks, strips non-canonical tags, rebuilds with moOde-canonical Vorbis comments (ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR), verifies STREAMINFO integrity.
 
@@ -837,7 +837,7 @@ echo "----------------------------------------"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2C.3 — MP3 moOde Repair (ID3v2.4 Rebuild with Canonical Tags)
+### Step 2C.3 — MP3 moOde Repair (ID3v2.4 Rebuild with Canonical Tags)
 
 Repairs MP3 files: extracts canonical ID3 frames (TPE1, TALB, TPE2, TRCK, TIT2, TDRC), removes all other tags, rebuilds ID3v2.4 header to moOde spec, verifies frame integrity.
 
@@ -862,16 +862,20 @@ SUM_LOG="$LOG_DIR/step02c-summary.log"
 TMP_DIR=$(mktemp -d)
 count_repaired=0
 count_failed=0
+count_total=0
 
 # moOde canonical ID3v2.4 frames: TPE1 (Artist), TALB (Album), TPE2 (Album Artist), TRCK (Track#), TIT2 (Title), TDRC (Year)
 extract_id3_frame() {
     local frame="$1" file="$2"
-    eyeD3 "$file" 2>/dev/null | grep -oP "(?<=\b$frame: ).*" | head -1 || echo ""
+    eyeD3 -q "$file" 2>/dev/null | grep -oP "(?<=\b$frame: ).*" | head -1 || echo ""
 }
 
 while IFS= read -r -d '' file; do
     [[ "$file" =~ \.[mM][pP]3$ ]] || continue
     
+    ((count_total++))
+    echo "[$count_total] Rebuilding MP3 container: $file"
+
     # Extract canonical moOde fields via eyeD3
     artist=$(extract_id3_frame "artist" "$file")
     album=$(extract_id3_frame "album" "$file")
@@ -888,11 +892,11 @@ while IFS= read -r -d '' file; do
     fi
     
     # Remove all ID3 tags and rebuild with moOde canonical fields only
-    eyeD3 --remove-all "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
-    eyeD3 --artist "$artist" --album "$album" --album-artist "$album_artist" --track "$track" --title "$title" --release-year "$year" -v 2.4 "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    eyeD3 -q --remove-all "$file" >/dev/null 2>&1 || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    eyeD3 -q --artist "$artist" --album "$album" --album-artist "$album_artist" --track "$track" --title "$title" --release-year "$year" -v 2.4 "$file" >/dev/null 2>&1 || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
     
     # Verify ID3v2.4 header post-rebuild
-    if eyeD3 "$file" 2>/dev/null | grep -q "ID3 v2.4"; then
+    if eyeD3 -q "$file" 2>/dev/null | grep -q "ID3 v2.4"; then
         echo "$file" >> "$OKS_LOG"
         ((count_repaired++))
     else
@@ -906,7 +910,7 @@ echo "MP3 moOde repair: $count_repaired rebuilt, $count_failed failed" | tee -a 
 echo "MP3: $count_repaired repaired, $count_failed failed" >> "$SUM_LOG"
 echo
 echo "----------------------------------------"
-echo "Step 2C.3 — MP3 & M4A Container Rebuild
+echo "Step 2C.3 — MP3 & M4A Container Rebuild"
 echo "----------------------------------------"
 
 ```
@@ -914,7 +918,7 @@ echo "----------------------------------------"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2C.4 — M4A/AAC moOde Repair (MP4 Atom Rebuild with Canonical Atoms)
+### Step 2C.4 — M4A/AAC moOde Repair (MP4 Atom Rebuild with Canonical Atoms)
 
 Repairs M4A/AAC files: extracts canonical MP4 atoms (©ART, ©alb, aART, trkn, ©nam, ©day), removes rogue freeform atoms, rebuilds container via ffmpeg with moOde spec, verifies Moov atom integrity.
 
@@ -987,7 +991,7 @@ echo "----------------------------------------"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2C.5 — OGG/Opus/WavPack moOde Repair (Vorbis Comment Cleanup)
+### Step 2C.5 — OGG/Opus/WavPack moOde Repair (Vorbis Comment Cleanup)
 
 Repairs OGG, Opus, and WavPack files: extracts canonical Vorbis comments (ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR), removes duplicates and rogue fields, rebuilds with moOde spec, verifies integrity.
 
@@ -1082,7 +1086,7 @@ echo "----------------------------------------"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2C.6 — Review Logs & moOde Compliance Summary
+### Step 2C.6 — Review Logs & moOde Compliance Summary
 
 Aggregates step logs from the five-file standard. Reports repair status, surfaces errors and failures, verifies moOde-canonical field preservation.
 
@@ -1172,7 +1176,7 @@ echo "========================================"
 
 \---------------------------------------------------------------------------------------
 
-## Step 2D — Verification
+### Step 2D — Verification
 
 Verify the files modified by Step 2C and confirm that the intended cleanup occurred.
 
@@ -1322,7 +1326,7 @@ echo "----------------------------------------"
 
 \ ---------------------------------------------------------------------------------------
 
-## Step 2E — Summary
+### Step 2E — Summary
 
 Produce the final Step 2 results and status.
 
@@ -1381,7 +1385,7 @@ Every dedup path in Step 2C (FLAC, MP3 COMMENT, MP3 TXXX, OGG, Opus) and the M4A
 
 ---
 
-07. Step 3 – Rebuild Audio Containers (All Formats)
+### 07. Step 3 – Rebuild Audio Containers (All Formats)
 
 ---
 
@@ -1555,7 +1559,7 @@ echo "----------------------------------------"
 
 ---
 
-08. Step 4 – Repeat Step 1 Integrity Test
+### 08. Step 4 – Repeat Step 1 Integrity Test
 
 ---
 
@@ -1758,7 +1762,7 @@ cat "$LOG_ROOT/${STEP}-fails.log"
 
 ---
 
-09. Step 5 – Reapply ReplayGain
+### 09. Step 5 – Reapply ReplayGain
 
 ---
 
@@ -1942,7 +1946,7 @@ cat "$LOG_ROOT/${STEP}-fails.log"
 
 ---
 
-10. Step 6 – Repeat Step 1 Integrity Test
+### 10. Step 6 – Repeat Step 1 Integrity Test
 
 ---
 
@@ -2133,7 +2137,7 @@ cat "$LOG_ROOT/${STEP}-fails.log"
 
 ---
 
-11. Step 7 – Remove Loose Files
+### 11. Step 7 – Remove Loose Files
 
 ---
 
@@ -2213,7 +2217,7 @@ cat "$LOG_ROOT/${STEP}-removed.log"
 
 ---
 
-12. Step 8 – Final Integrity Test
+### 12. Step 8 – Final Integrity Test
 
 ---
 
@@ -2406,7 +2410,7 @@ cat "$LOG_ROOT/${STEP}-fails.log"
 
 ---
 
-13. Optional Procedures
+### 13. Optional Procedures
 
 ---
 
@@ -2414,7 +2418,7 @@ The following procedures are not required for a standard library cleanup but may
 
 \ ---------------------------------------------------------------------------------------
 
-## 13a. Strip Problematic Metadata
+### 13a. Strip Problematic Metadata
 
 This procedure is a "nuclear option" for files that continue to fail integrity testing even after the standard deduplication and container rebuilding steps.
 
@@ -2580,7 +2584,7 @@ A successful run produces:
 After running this on stubborn files, you should run the integrity test (flac -t) on them again. If they pass, the corruption was isolated to a non-audio metadata block.
 
 \-------------------------------------------------------------------
-## 13b: Normalize Album Artwork (FLAC Only—Reference / Legacy)
+### 13b: Normalize Album Artwork (FLAC Only—Reference / Legacy)
 
 **Note:** Step 13c "Update Album Artwork Embeds" supersedes this procedure and covers all Moode-compatible audio formats (FLAC, MP3, M4A, OGG, Opus, AIFF, APE, DSF). Use Step 13c unless you specifically need FLAC-only metaflac-based embed logic.
 
@@ -2764,7 +2768,7 @@ Albums without a cover.jpg or folder.jpg are simply ignored by this script. To p
 
 \-------------------------------------------------------------------
 
-## 13c. Update Album Artwork Embeds (Moode Compatible Formats)
+### 13c. Update Album Artwork Embeds (Moode Compatible Formats)
 
 **Primary Step for Artwork Embed Operations**
 
@@ -2984,7 +2988,7 @@ Directories without a standard cover image (Cover.jpg, cover.jpg, Folder.jpg, fo
 
 \-------------------------------------------------------------------
 
-## 13d. Deep Repair via Decode/Re-encode (Last Resort)
+### 13d. Deep Repair via Decode/Re-encode (Last Resort)
 
 -- Purpose
 
@@ -3199,7 +3203,7 @@ After running this procedure, verify the results:
 
 \-------------------------------------------------------------------
 
-14. Generate Checksums
+### 14. Generate Checksums
 
 -- Purpose
 
@@ -3228,7 +3232,7 @@ Link to SHA-512 Repository: https://github.com/TerrapinATL/linux.audio.sha512-ch
 
 ---
 
-15. Troubleshooting & Reference Information
+### 15. Troubleshooting & Reference Information
 
 ---
 
