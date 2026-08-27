@@ -567,9 +567,114 @@ Repairs and validates audio file headers to moOde specification. Extracts canoni
 
 \---------------------------------------------------------------------------------------
 
+--- Bash Script Step 2C.0 Start ---
+```bash
+
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# Step 2C.0 — PreFlight Dependency Check & Package Helper
+# ------------------------------------------------------------
+echo
+
+step02c_preflight() {
+    local REQUIRED_TOOLS="metaflac eyeD3 AtomicParsley ffmpeg ffprobe vorbiscomment opustags wvtag"
+    local MISSING_TOOLS=""
+    local MISSING_PACKAGES=""
+    local MISSING_COUNT=0
+    local tool pkg choice STILL_MISSING
+
+    echo "----------------------------------------"
+    echo "Step 2C.0 — PreFlight Dependency Check"
+    echo "----------------------------------------"
+
+    # Check PATH for each required binary
+    for tool in $REQUIRED_TOOLS; do
+        if ! command -v "$tool" &>/dev/null; then
+            case "$tool" in
+                metaflac)      pkg="flac" ;;
+                eyeD3)         pkg="eyed3" ;;
+                AtomicParsley) pkg="atomicparsley" ;;
+                ffmpeg|ffprobe) pkg="ffmpeg" ;;
+                vorbiscomment) pkg="vorbis-tools" ;;
+                opustags)      pkg="opustags" ;;
+                wvtag)         pkg="wavpack" ;;
+                *)             pkg="$tool" ;;
+            esac
+
+            MISSING_TOOLS="${MISSING_TOOLS}  - Binary: ${tool} (Package: ${pkg})\n"
+            
+            case " $MISSING_PACKAGES " in
+                *" $pkg "*) ;;
+                *) MISSING_PACKAGES="${MISSING_PACKAGES} ${pkg}" ;;
+            esac
+            
+            MISSING_COUNT=$((MISSING_COUNT + 1))
+        fi
+    done
+
+    # If all binaries exist, pass immediately
+    if [ "$MISSING_COUNT" -eq 0 ]; then
+        echo "STATUS: PreFlight passed. All 8 required binaries are available."
+        echo "----------------------------------------"
+        echo
+        return 0
+    fi
+
+    # Handle missing binaries gracefully
+    echo "CRITICAL ERROR: Step 2C PreFlight Check Failed." >&2
+    echo "The following required CLI tools are missing:" >&2
+    echo -e "$MISSING_TOOLS" >&2
+    
+    MISSING_PACKAGES=$(echo "$MISSING_PACKAGES" | xargs)
+    
+    echo "Required installation command:" >&2
+    echo "  sudo apt update && sudo apt install -y $MISSING_PACKAGES" >&2
+    echo "----------------------------------------" >&2
+    
+    read -r -p "Would you like to install missing packages now? (y/N): " choice < /dev/tty || choice="N"
+    case "$choice" in 
+        [yY][eE][sS]|[yY])
+            echo "--> Running package installation..."
+            sudo apt update && sudo apt install -y $MISSING_PACKAGES
+            
+            STILL_MISSING=0
+            for tool in $REQUIRED_TOOLS; do
+                if ! command -v "$tool" &>/dev/null; then
+                    echo "ERROR: Tool '$tool' is still missing post-install." >&2
+                    STILL_MISSING=1
+                fi
+            done
+            
+            if [ "$STILL_MISSING" -eq 0 ]; then
+                echo "--> All packages installed successfully!"
+                echo "----------------------------------------"
+                echo
+                return 0
+            else
+                echo "PreFlight failed. Please install remaining packages manually." >&2
+                return 1
+            fi
+            ;;
+        *)
+            echo "PreFlight skipped. Halting Step 2C sequence." >&2
+            return 1
+            ;;
+    esac
+}
+
+# Execute function
+step02c_preflight
+echo "Step 2C.1 — Init Logs and Check Input"
+echo "----------------------------------------"
+
+```
+--- Bash Script Step 2C.0 End ---
+\---------------------------------------------------------------------------------------
+
 ## Step 2C.1 — Initialize & Extract Canonical moOde Fields
 
 Ensures candidate list exists, initializes log files, and performs first-pass metadata extraction to identify canonical moOde fields before any repairs.
+
 
 --- Bash Script Step 2C.1 Start ---
 ```bash
