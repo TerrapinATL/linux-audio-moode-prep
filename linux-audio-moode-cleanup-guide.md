@@ -498,103 +498,63 @@ Unsupported: raw AAC, WAV, AIFF, AIF, AIFC, APE, MPC, SPX, and anything else Ste
 # ------------------------------------------------------------
 
 set -u
-
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
 STEP="step02b"
 mkdir -p "$LOG_ROOT"
-
 RUN_LOG="$LOG_ROOT/${STEP}-run.log"
 OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
 FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
 ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
 SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
-
 : > "$RUN_LOG"
 : > "$OKS_LOG"
 : > "$FAILS_LOG"
 : > "$ERRORS_LOG"
 : > "$SUMMARY_LOG"
-
 CANDIDATE_LIST="/tmp/Step02-audio-candidates.txt"
-
 if [ ! -s "$CANDIDATE_LIST" ]; then
-    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
-    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
-    
-    if [ -t 1 ]; then
-        read -rp "Press ENTER to view error log..." </dev/tty
-        less -R "$ERRORS_LOG" </dev/tty
-    fi
-
-    echo "----------------------------------------"
-    echo "Step 2B - Format Assessment"
-    echo "----------------------------------------"
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" >> "$ERRORS_LOG"
+    echo "STATUS=ERROR" >> "$SUMMARY_LOG"
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST"
     echo "Run Step 2A first."
     exit 1
 fi
-
-supported_count=0
-review_count=0
-unsupported_count=0
-
+declare -A format_count
+total_count=0
 while IFS= read -r -d '' file; do
     if [ ! -r "$file" ]; then
-        echo "ERROR: unreadable file :: $file" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+        echo "ERROR: unreadable file :: $file" >> "$ERRORS_LOG"
         continue
     fi
-
     ext="${file##*.}"
     ext_lc="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
-
-    case "$ext_lc" in
-        flac|mp3|ogg|opus)
-            echo "OK [SUPPORTED] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
-            supported_count=$((supported_count + 1))
-            ;;
-        m4a|mp4|wv|aac|wav|aiff|aif|aifc|ape|mpc|spx)
-            echo "REVIEW [MANUAL_CHECK] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
-            review_count=$((review_count + 1))
-            ;;
-        *)
-            echo "FAIL [UNSUPPORTED] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
-            unsupported_count=$((unsupported_count + 1))
-            ;;
-    esac
+    echo "$ext_lc [FOUND] :: $file" >> "$RUN_LOG"
+    format_count[$ext_lc]=$((${format_count[$ext_lc]:-0} + 1))
+    total_count=$((total_count + 1))
+    if [[ "$ext_lc" =~ ^(flac|mp3|ogg|opus)$ ]]; then
+        echo "$file" >> "$OKS_LOG"
+    else
+        echo "$file" >> "$FAILS_LOG"
+    fi
 done < "$CANDIDATE_LIST"
+echo "STATUS=OK" >> "$SUMMARY_LOG"
+for fmt in "${!format_count[@]}"; do
+    echo "$fmt=${format_count[$fmt]}" >> "$SUMMARY_LOG"
+done
+echo "TOTAL=$total_count" >> "$SUMMARY_LOG"
+echo "Format Breakdown:"
+for fmt in $(printf '%s\n' "${!format_count[@]}" | sort); do
+    printf "  %-20s: %d\n" "$(printf '%s' "$fmt" | tr '[:lower:]' '[:upper:]')" "${format_count[$fmt]}"
+done
+echo ""
+echo "Total files processed : $total_count"
 
-echo "SUPPORTED_FORMATS=$supported_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "REVIEW_FORMATS=$review_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "UNSUPPORTED_FORMATS=$unsupported_count" | tee -a "$SUMMARY_LOG" >/dev/null
-echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
-
-# Open viewer with explicit TTY redirection
-if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
-    echo
-    echo "=================================================="
-    echo " ERRORS DETECTED — Press ENTER to view error log"
-    echo "=================================================="
-    read -r </dev/tty
-    less -R "$ERRORS_LOG" </dev/tty
-elif [ -t 1 ] && [ -s "$FAILS_LOG" ]; then
-    echo
-    echo "=================================================="
-    echo " REVIEW/FAILS FOUND — Press ENTER to view log"
-    echo "=================================================="
-    read -r </dev/tty
-    less -R "$FAILS_LOG" </dev/tty
-fi
-
-# Footer strictly at the absolute end
-
-echo "Supported formats   : $supported_count"
-echo "Review required     : $review_count"
-echo "Unsupported formats : $unsupported_count"
+echo
 echo "----------------------------------------"
 echo "Step 2B - Format Assessment"
 echo "----------------------------------------"
 
 ```
-
 --- Bash Script Step 2B End ---
 
 \---------------------------------------------------------------------------------------
@@ -689,17 +649,33 @@ SUM_LOG="$LOG_DIR/step02c-summary.log"
 TMP_DIR=$(mktemp -d)
 count_repaired=0
 count_failed=0
+count_total=0
+count_processed=0
 
 # moOde canonical fields in Vorbis comment form
 MOODE_FIELDS="ARTIST|ALBUM|ALBUMARTIST|TRACKNUMBER|TITLE|DATE|YEAR"
 
+# First pass: count total FLAC files
+while IFS= read -r -d '' file; do
+    [[ "$file" =~ \.[fF][lL][aA][cC]$ ]] && ((count_total++))
+done < "$CANDIDATES"
+
+if [ "$count_total" -eq 0 ]; then
+    echo "No FLAC files found in candidates list."
+    exit 0
+fi
+
+# Second pass: process files with progress
 while IFS= read -r -d '' file; do
     [[ "$file" =~ \.[fF][lL][aA][cC]$ ]] || continue
+    ((count_processed++))
+    pct=$((count_processed * 100 / count_total))
+    status="FAIL"
     
     # Extract canonical moOde fields only
     tmp_tags="$TMP_DIR/tags.txt"
-    metaflac --export-tags-to="$tmp_tags" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
-    [ -s "$tmp_tags" ] || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    metaflac --export-tags-to="$tmp_tags" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
+    [ -s "$tmp_tags" ] || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
     
     # Filter to moOde canonical fields only (case-insensitive key match)
     grep -iE "^($MOODE_FIELDS)=" "$tmp_tags" > "${tmp_tags}.canon" 2>/dev/null || true
@@ -708,27 +684,31 @@ while IFS= read -r -d '' file; do
     awk -F= '!seen[$1]++' "${tmp_tags}.canon" > "${tmp_tags}.dedup"
     
     # Remove all tags and reimport canonical set only
-    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
-    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
+    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s\n" "$count_processed" "$count_total" "$pct" "$(basename "$file")"; continue; }
     
     # Verify STREAMINFO integrity (moOde requirement)
     if metaflac --info "$file" 2>/dev/null | grep -q "STREAMINFO"; then
         echo "$file" >> "$OKS_LOG"
         ((count_repaired++))
+        status="OK"
     else
         echo "$file" >> "$FAILS_LOG"
         ((count_failed++))
+        status="FAIL"
     fi
+    printf "[%d/%d] %3d%% [%s] %s\n" "$count_processed" "$count_total" "$pct" "$status" "$(basename "$file")"
 done < "$CANDIDATES"
 
 rm -rf "$TMP_DIR"
+echo
 echo "FLAC moOde repair: $count_repaired rebuilt, $count_failed failed" | tee -a "$RUN_LOG"
 echo "FLAC: $count_repaired repaired, $count_failed failed" >> "$SUM_LOG"
-
 echo
 echo "----------------------------------------"
 echo "Step 2C.2 — FLAC Deduplication"
 echo "----------------------------------------"
+
 ```
 --- Bash Script Step 2C.2 End ---
 
