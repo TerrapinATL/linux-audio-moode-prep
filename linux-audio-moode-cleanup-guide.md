@@ -561,6 +561,8 @@ echo "----------------------------------------"
 
 ## Step 2C — moOde Container & Metadata Repair
 
+### ERRORS IN THIS SCRIPT WERE FOUND DURING MY FINAL TEST RUN. ISSUES WITH SOFTWARE NOT BEING PREFLIGHT CHECKED FOR AVAILABILITY, ISSUES WITH THE SCRIPT LOGIC FAILING. I HOPE TO HAVE IT ADDRESSED SOON. THIS BECAME A BIT MORE COMPLICATED THAN ANTICIPATED DUE TO USE OF MARKDOWN FORMAT, BUT THIS IS AN IMPORTANT STEP IN CLEANING UP AUDIO CONTAINER AND METADATA ISSUES.
+
 Repairs and validates audio file headers to moOde specification. Extracts canonical metadata (Artist, Album, Album Artist, Track#, Track Name, Year), removes rogue/duplicate tags, rebuilds containers to moOde standards, and verifies post-repair integrity.
 
 \---------------------------------------------------------------------------------------
