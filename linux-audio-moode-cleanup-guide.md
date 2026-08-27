@@ -849,7 +849,6 @@ Repairs MP3 files: extracts canonical ID3 frames (TPE1, TALB, TPE2, TRCK, TIT2, 
 # Step 2C.3 — MP3 & M4A Container Rebuild
 # ------------------------------------------------------------
 
-# Extract canonical ID3v2.4 frames, rebuild container
 set -u
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
@@ -864,42 +863,120 @@ count_repaired=0
 count_failed=0
 count_total=0
 
-# moOde canonical ID3v2.4 frames: TPE1 (Artist), TALB (Album), TPE2 (Album Artist), TRCK (Track#), TIT2 (Title), TDRC (Year)
-extract_id3_frame() {
+# Pre-calculate total MP3 candidate count for percentage calculation
+total_candidates=$(grep -iE '\.mp3$' "$CANDIDATES" 2>/dev/null | wc -l)
+[ "$total_candidates" -eq 0 ] && total_candidates=1
+
+# Helper to extract tags via eyeD3, then ffprobe, then path/file parsing
+get_metadata() {
     local frame="$1" file="$2"
-    eyeD3 -q "$file" 2>/dev/null | grep -oP "(?<=\b$frame: ).*" | head -1 || echo ""
+    local val=""
+
+    # 1. Try eyeD3 (case-insensitive search)
+    val=$(eyeD3 -q "$file" 2>/dev/null | grep -iP "(?<=\b$frame: ).*" | head -1 || echo "")
+
+    # 2. Try ffprobe if eyeD3 yielded nothing
+    if [ -z "$val" ]; then
+        case "$frame" in
+            "artist")       val=$(ffprobe -v quiet -show_entries format_tags=artist -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "") ;;
+            "album")        val=$(ffprobe -v quiet -show_entries format_tags=album -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "") ;;
+            "album artist") val=$(ffprobe -v quiet -show_entries format_tags=album_artist -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "") ;;
+            "title")        val=$(ffprobe -v quiet -show_entries format_tags=title -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "") ;;
+            "track")        val=$(ffprobe -v quiet -show_entries format_tags=track -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "") ;;
+            "year")         val=$(ffprobe -v quiet -show_entries format_tags=date -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null || echo "") ;;
+        esac
+    fi
+
+    # 3. Fallback to path and filename parsing (Artist/Album/XX Title.mp3)
+    if [ -z "$val" ]; then
+        local filename
+        filename=$(basename "$file" .mp3)
+        local album_dir
+        album_dir=$(basename "$(dirname "$file")")
+        local artist_dir
+        artist_dir=$(basename "$(dirname "$(dirname "$file")")")
+
+        case "$frame" in
+            "artist"|"album artist")
+                val="$artist_dir"
+                ;;
+            "album")
+                val=$(echo "$album_dir" | sed -E 's/^[0-9]{4}[ -]+//')
+                ;;
+            "year")
+                val=$(echo "$album_dir" | grep -oE '^[0-9]{4}' || echo "")
+                ;;
+            "track")
+                val=$(echo "$filename" | grep -oE '^[0-9]+' || echo "")
+                ;;
+            "title")
+                val=$(echo "$filename" | sed -E 's/^[0-9]+[ -]+//')
+                ;;
+        esac
+    fi
+
+    echo "$val"
 }
 
 while IFS= read -r -d '' file; do
     [[ "$file" =~ \.[mM][pP]3$ ]] || continue
     
     ((count_total++))
-    echo "[$count_total] Rebuilding MP3 container: $file"
+    pct=$(( count_total * 100 / total_candidates ))
 
-    # Extract canonical moOde fields via eyeD3
-    artist=$(extract_id3_frame "artist" "$file")
-    album=$(extract_id3_frame "album" "$file")
-    album_artist=$(extract_id3_frame "album artist" "$file")
-    track=$(extract_id3_frame "track" "$file")
-    title=$(extract_id3_frame "title" "$file")
-    year=$(extract_id3_frame "year" "$file")
+    # Extract metadata across all tiers
+    artist=$(get_metadata "artist" "$file")
+    album=$(get_metadata "album" "$file")
+    album_artist=$(get_metadata "album artist" "$file")
+    track=$(get_metadata "track" "$file")
+    title=$(get_metadata "title" "$file")
+    year=$(get_metadata "year" "$file")
     
+    # Default album_artist to artist if absent
+    if [ -z "$album_artist" ]; then
+        album_artist="$artist"
+    fi
+
+    # Format track number to 2 digits for uniform output
+    formatted_track=$(printf "%02d" "${track:-0}" 2>/dev/null || echo "${track:-00}")
+
     # Verify critical fields exist
     if [ -z "$artist" ] || [ -z "$album" ] || [ -z "$track" ] || [ -z "$title" ]; then
+        printf "[%d/%d] %3d%% [FAIL] %s / %s / #%s %s\n" "$count_total" "$total_candidates" "$pct" "${artist:-Unknown}" "${album:-Unknown}" "$formatted_track" "${title:-Unknown}"
         echo "$file" >> "$FAILS_LOG"
         ((count_failed++))
         continue
     fi
     
-    # Remove all ID3 tags and rebuild with moOde canonical fields only
-    eyeD3 -q --remove-all "$file" >/dev/null 2>&1 || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
-    eyeD3 -q --artist "$artist" --album "$album" --album-artist "$album_artist" --track "$track" --title "$title" --release-year "$year" -v 2.4 "$file" >/dev/null 2>&1 || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); continue; }
+    # Strip existing ID3 tags completely
+    eyeD3 -q --remove-all "$file" >/dev/null 2>&1 || { 
+        printf "[%d/%d] %3d%% [FAIL] %s / %s / #%s %s\n" "$count_total" "$total_candidates" "$pct" "$artist" "$album" "$formatted_track" "$title"
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+        continue
+    }
+    
+    # Write canonical ID3v2.4 frames quietly
+    cmd=(eyeD3 -q --artist "$artist" --album "$album" --album-artist "$album_artist" --track "$track" --title "$title" -v 2.4)
+    if [ -n "$year" ]; then
+        cmd+=(--release-year "$year")
+    fi
+    cmd+=("$file")
+
+    "${cmd[@]}" >/dev/null 2>&1 || { 
+        printf "[%d/%d] %3d%% [FAIL] %s / %s / #%s %s\n" "$count_total" "$total_candidates" "$pct" "$artist" "$album" "$formatted_track" "$title"
+        echo "$file" >> "$FAILS_LOG"
+        ((count_failed++))
+        continue
+    }
     
     # Verify ID3v2.4 header post-rebuild
     if eyeD3 -q "$file" 2>/dev/null | grep -q "ID3 v2.4"; then
+        printf "[%d/%d] %3d%% [OK] %s / %s / #%s %s\n" "$count_total" "$total_candidates" "$pct" "$artist" "$album" "$formatted_track" "$title"
         echo "$file" >> "$OKS_LOG"
         ((count_repaired++))
     else
+        printf "[%d/%d] %3d%% [FAIL] %s / %s / #%s %s\n" "$count_total" "$total_candidates" "$pct" "$artist" "$album" "$formatted_track" "$title"
         echo "$file" >> "$FAILS_LOG"
         ((count_failed++))
     fi
