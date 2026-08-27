@@ -405,8 +405,8 @@ Ensures candidate list exists, initializes log files, and performs first-pass me
 
 # Extracts Artist, Album, Album Artist, Track#, Track Name, Year
 set -u
-LOG_ROOT="LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-LOG_DIR="$LOG_ROOT
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+LOG_DIR="$LOG_ROOT"
 mkdir -p "$LOG_DIR"
 RUN_LOG="$LOG_DIR/step02c-run.log"
 OKS_LOG="$LOG_DIR/step02c-oks.log"
@@ -415,31 +415,23 @@ ERR_LOG="$LOG_DIR/step02c-errors.log"
 SUM_LOG="$LOG_DIR/step02c-summary.log"
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 EXTRACT_TMP="/tmp/moode_extract_$$.txt"
-
 : > "$RUN_LOG"; : > "$OKS_LOG"; : > "$FAILS_LOG"; : > "$ERR_LOG"; : > "$SUM_LOG"
-
 if [ ! -s "$CANDIDATES" ]; then
     echo "ERROR: Candidate list missing or empty: $CANDIDATES" | tee -a "$ERR_LOG"
     exit 1
 fi
-
 echo "STATUS: 2C.1 Initializing moOde repair. Candidates: $(grep -c '' "$CANDIDATES" < /dev/null || echo "0")" | tee -a "$RUN_LOG"
-
 # Canonical moOde fields by format
 # MP3: TPE1 (Artist), TALB (Album), TPE2 (Album Artist), TRCK (Track#), TIT2 (Track Name), TDRC/TYER (Year)
 # M4A: ©ART, ©alb, aART, trkn, ©nam, ©day
 # FLAC/OGG/Opus: ARTIST, ALBUM, ALBUMARTIST, TRACKNUMBER, TITLE, DATE/YEAR
-
 count_total=0
 while IFS= read -r -d '' file; do
     ((count_total++))
 done < "$CANDIDATES"
-
 echo "Total candidates: $count_total" >> "$SUM_LOG"
 echo | tee -a "$RUN_LOG"
-
 rm -f "$EXTRACT_TMP"
-
 echo
 echo "----------------------------------------"
 echo "Step 2C.1 — Init Logs and Check Input"
@@ -466,7 +458,7 @@ Repairs FLAC files: removes duplicate metadata blocks, strips non-canonical tags
 set -u
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-LOG_DIR="$LOG_ROOT
+LOG_DIR="$LOG_ROOT"
 RUN_LOG="$LOG_DIR/step02c-run.log"
 OKS_LOG="$LOG_DIR/step02c-oks.log"
 FAILS_LOG="$LOG_DIR/step02c-fails.log"
@@ -536,7 +528,7 @@ Repairs MP3 files: extracts canonical ID3 frames (TPE1, TALB, TPE2, TRCK, TIT2, 
 set -u
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-LOG_DIR="$LOG_ROOT
+LOG_DIR="$LOG_ROOT"
 RUN_LOG="$LOG_DIR/step02c-run.log"
 OKS_LOG="$LOG_DIR/step02c-oks.log"
 FAILS_LOG="$LOG_DIR/step02c-fails.log"
@@ -613,7 +605,7 @@ Repairs M4A/AAC files: extracts canonical MP4 atoms (©ART, ©alb, aART, trkn, �
 set -u
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-LOG_DIR="$LOG_ROOT
+LOG_DIR="$LOG_ROOT"
 RUN_LOG="$LOG_DIR/step02c-run.log"
 OKS_LOG="$LOG_DIR/step02c-oks.log"
 FAILS_LOG="$LOG_DIR/step02c-fails.log"
@@ -686,7 +678,7 @@ Repairs OGG, Opus, and WavPack files: extracts canonical Vorbis comments (ARTIST
 set -u
 CANDIDATES="/tmp/Step02-audio-candidates.txt"
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-LOG_DIR="$LOG_ROOT
+LOG_DIR="$LOG_ROOT"
 RUN_LOG="$LOG_DIR/step02c-run.log"
 OKS_LOG="$LOG_DIR/step02c-oks.log"
 FAILS_LOG="$LOG_DIR/step02c-fails.log"
@@ -779,7 +771,7 @@ Aggregates step logs from the five-file standard. Reports repair status, surface
 
 set -u
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
-LOG_DIR="$LOG_ROOT
+LOG_DIR="$LOG_ROOT"
 mkdir -p "$LOG_DIR"
 
 RUN_LOG="$LOG_DIR/step02c-run.log"
