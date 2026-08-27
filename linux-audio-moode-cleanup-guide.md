@@ -583,10 +583,6 @@ step02c_preflight() {
     local MISSING_COUNT=0
     local tool pkg choice STILL_MISSING
 
-    echo "----------------------------------------"
-    echo "Step 2C.0 — PreFlight Dependency Check"
-    echo "----------------------------------------"
-
     # Check PATH for each required binary
     for tool in $REQUIRED_TOOLS; do
         if ! command -v "$tool" &>/dev/null; then
@@ -664,6 +660,9 @@ step02c_preflight() {
 
 # Execute function
 step02c_preflight
+
+echo
+echo "----------------------------------------"
 echo "Step 2C.0 — PreFlight Dependency Check & Package Helper"
 echo "----------------------------------------"
 
@@ -808,8 +807,8 @@ for file in "${queue[@]}"; do
     awk -F= '!seen[$1]++' "${tmp_tags}.canon" > "${tmp_tags}.dedup"
     
     # Remove all tags and reimport canonical set only
-    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s / %s / %s\n" "$count_processed" "$count_total" "$pct" "$artist" "$album" "$track"; continue; }
-    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s / %s / %s\n" "$count_processed" "$count_total" "$pct" "$artist" "$album" "$track"; continue; }
+    metaflac --remove-all-tags "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s / %s / %s - %s\n" "$count_processed" "$count_total" "$pct" "$artist" "$album" "$track" "$title"; continue; }
+    metaflac --import-tags-from="${tmp_tags}.dedup" "$file" 2>/dev/null || { echo "$file" >> "$FAILS_LOG"; ((count_failed++)); printf "[%d/%d] %3d%% [FAIL] %s / %s / %s - %s\n" "$count_processed" "$count_total" "$pct" "$artist" "$album" "$track" "$title"; continue; }
     
     # Verify STREAMINFO integrity (moOde requirement)
     if metaflac --list "$file" 2>/dev/null | grep -q "type: 0 (STREAMINFO)"; then
@@ -821,7 +820,7 @@ for file in "${queue[@]}"; do
         ((count_failed++))
         status="FAIL"
     fi
-    printf "[%d/%d] %3d%% [%s] %s / %s / %s\n" "$count_processed" "$count_total" "$pct" "$status" "$artist" "$album" "$track"
+    printf "[%d/%d] %3d%% [%s] %s / %s / %s - %s\n" "$count_processed" "$count_total" "$pct" "$status" "$artist" "$album" "$track" "$title"
 done
 
 rm -rf "$TMP_DIR"
