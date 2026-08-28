@@ -863,8 +863,8 @@ count_repaired=0
 count_failed=0
 count_total=0
 
-# Pre-calculate total MP3 candidate count for percentage calculation
-total_candidates=$(grep -iE '\.mp3$' "$CANDIDATES" 2>/dev/null | wc -l)
+# Pre-calculate total MP3 candidate count using -z for null-terminated CANDIDATES file
+total_candidates=$(grep -z -iE '\.mp3$' "$CANDIDATES" 2>/dev/null | tr -d -c '\0' | wc -c)
 [ "$total_candidates" -eq 0 ] && total_candidates=1
 
 # Helper to extract tags via eyeD3, then ffprobe, then path/file parsing
