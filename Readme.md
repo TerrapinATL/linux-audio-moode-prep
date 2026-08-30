@@ -17,7 +17,7 @@ Parent/
 └── Artist/
     └── YYYY Album Name/
         ├── 01 Track One.flac
-        ├── 02 - Track Two.flac
+        ├── 02 Track Two.flac
         └── ...
 ```
 
