@@ -16,14 +16,14 @@ This guide works best — and its verification layers work *only* at full streng
 Parent/
 └── Artist/
     └── YYYY Album Name/
-        ├── 01 - Track One.flac
+        ├── 01 Track One.flac
         ├── 02 - Track Two.flac
         └── ...
 ```
 
 * Album folders start with a 4-digit year then a space then the album name: `2004 Album Name`.
-* Track files are named with a zero-padded track number then the title: `01 - Track One.ext` (padded `01`–`09`, then `10` and up).
-* Armlike variants (`NN Title` without a hyphen) are accepted by the tag tools; the padded number is what matters.
+* Track files are named with a zero-padded track number then the title, no dash: `01 Track One.ext` (padded `01`–`09`, then `10` and up).
+* A hyphenated variant (`NN - Title`) is accepted by the tag tools; the padded number is what matters.
 
 Why it matters:
 

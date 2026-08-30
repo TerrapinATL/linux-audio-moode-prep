@@ -144,14 +144,14 @@ This guide is designed around the following layout:
 Parent/
 └── Artist/
     └── YYYY Album Name/
-        ├── 01 - Track One.flac
-        ├── 02 - Track Two.flac
+        ├── 01 Track One.flac
+        ├── 02 Track Two.flac
         └── ...
 ```
 
 * Album folders start with a 4-digit year followed by a space and the album name: `2004 Album Name`.
-* Track files are named with a zero-padded track number, then the title: `01 - Track One.ext` (padded `01` through `09`, then `10` and up).
-* Armlike variants (`NN Title` without a hyphen) are also accepted by the tag tools; the padded number is what matters.
+* Track files are named with a zero-padded track number, then the title, no dash: `01 Track One.ext` (padded `01` through `09`, then `10` and up).
+* A hyphenated variant (`NN - Title`) is also accepted by the tag tools; the padded number is what matters.
 
 This layout is the single strongest confirmation layer in the suite:
 
@@ -3903,11 +3903,11 @@ It is read-only: it never modifies any file. It only reports. Any findings are f
 This step:
 
 * Scans the given music root recursively for FLAC, MP3, and M4A files.
-* Derives the expected Artist (parent folder), Album Year / Album name (album folder name, `YYYY Album`), and Track number / Title (filename, `NN - Title`) from the naming convention.
+* Derives the expected Artist (parent folder), Album Year / Album name (album folder name, `YYYY Album`), and Track number / Title (filename, `NN Title`) from the naming convention.
 * Reads the actual embedded tags from each file with ffprobe.
 * Compares them case-insensitively and with whitespace collapsed, so harmless capitalization differences are not flagged.
 * Flags any file where a tag is missing or disagrees with the filename/folder, writing one line per finding.
-* Files whose name has no `NN - Title` prefix are reported as UNPARSEABLE rather than guessed.
+* Files whose name has no `NN Title` prefix are reported as UNPARSEABLE rather than guessed.
 * Writes a `SUMMARY:` tally of files checked vs. mismatches found.
 
 -- How to Run
@@ -3967,7 +3967,7 @@ while IFS= read -r -d '' filepath; do
         want_track=$(( 10#${want_track_str} ))
         want_title="${BASH_REMATCH[2]}"
     else
-        echo "UNPARSEABLE|$rel|filename has no \"NN - Title\"" >> "$MISMATCH_LOG"
+        echo "UNPARSEABLE|$rel|filename has no \"NN Title\"" >> "$MISMATCH_LOG"
         mismatched=$((mismatched+1))
         continue
     fi
