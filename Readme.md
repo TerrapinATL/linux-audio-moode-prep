@@ -1,10 +1,38 @@
 # [Linux Audio Utilities](https://github.com/TerrapinATL/linux.audio.flac-clean-up/edit/main/Readme.md)
 
+**Guide version: v26** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v25.
+
 A collection of lightweight command-line workflows and utilities designed for validating, cleaning, managing, and backing up local music libraries on Linux.
 
 ## Overview
 
 This repository contains tools and documentation to help maintain a pristine, standardized digital music library. It focuses on batch processing, metadata management, loudness normalization, integrity verification, and efficient backups.
+
+## Library Naming Convention (Recommended for Best Results)
+
+This guide works best — and its verification layers work *only* at full strength — when the library follows this layout:
+
+```
+Parent/
+└── Artist/
+    └── YYYY Album Name/
+        ├── 01 - Track One.flac
+        ├── 02 - Track Two.flac
+        └── ...
+```
+
+* Album folders start with a 4-digit year then a space then the album name: `2004 Album Name`.
+* Track files are named with a zero-padded track number then the title: `01 - Track One.ext` (padded `01`–`09`, then `10` and up).
+* Armlike variants (`NN Title` without a hyphen) are accepted by the tag tools; the padded number is what matters.
+
+Why it matters:
+
+* **The 13e failsafe verifies embedded tags against folder and file names.** Artist comes from the parent folder, Album Year/Album name from the album folder, Track number/Title from the filename. The filesystem becomes the reference schema for what each file must be tagged.
+* **Tags can be rebuilt from names alone** if metadata is ever lost or corrupted — losslessly, with audio untouched.
+* **Zero-padded track numbers sort correctly** in moOde, mpd, SHA-512 manifests, and file managers.
+* **The checksum and recertification guides use the same layout**, so album- and artist-level manifests stay consistent with what moOde displays.
+
+Steps 1–8 (integrity, deduplication, rebuild, ReplayGain) process any folder layout. But the confirmation layers — 13e, Write Tags, checksum tools — are built around this convention.
 
 ## Included Tools & Guides
 
