@@ -1,11 +1,16 @@
-### linux-audio-moode-cleanup-guide — v28 Change Log
+### linux-audio-moode-cleanup-guide — Change Log
 
-**Version: v28 — FINAL** — Current version; supersedes v27. The full pipeline
-has been run end-to-end against the production library and verified clean.
-Remaining user action: SHA-512 checksum generation (separate repo).
-(Prose and script corrections applied 2026-09-14 — see the last entry below.)
+All version changes are appended to this file, newest last, one `## vX.Y Change Log` section per version.
 
-Main guide: [linux-audio-moode-cleanup-guide-v28.md](linux-audio-moode-cleanup-guide-v28.md)
+**Update rule:** before writing to the version-less main guide file, the current content must first be saved as a versioned copy (e.g. `linux-audio-moode-cleanup-guide-v28.md`) so every published version stays retrievable.
+
+**Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
+
+**Current version: v29** — supersedes v28. Adds live progress counters to
+the long-running scripts that previously ran silently (Step 1 cache
+pre-warm, Steps 2C.2–2C.5 and 2D). See the v29 entries below.
+
+Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
 ---
 
@@ -57,3 +62,36 @@ exact tested versions from that run. Summary of changes from v27:
    (the old `grep -o $'\0'` idiom always yielded 0 on GNU grep); Step 15c
    review log initialized; Step 2A skips step artifacts; 15a padding review
    no longer flags files with no PADDING block at all.
+* **Auto-purge added (2026-09-14)** — Step 1 now purges the log directory
+  at the start of the workflow (suite auto-purge convention), so the
+  previous run's logs remain reviewable until the next run replaces them.
+  Per-step log resets are unchanged; steps run individually still reset
+  only their own logs.
+
+---
+
+## v29 Change Log (2026-09-15)
+
+Policy change behind this revision: no long-running script may run
+silently. Every per-file loop that takes minutes on a large library now
+shows the same in-place progress line used by Steps 8, 9, 10, 15a and 15b
+since v28:
+
+    [n/total] % complete  elapsed HH:MM:SS  ETA HH:MM:SS
+
+* **Step 1 cache pre-warm** — the single `xargs cat` read pass was
+  converted to a per-file loop over a metadata-only file list, so a live
+  `Pre-warming: n/total files (pct%)` counter can be shown. Read behavior
+  is unchanged (one sequential pass, same exclusions, same
+  `step01-prewarm-errors.log`); the SUMMARY line now also reports the
+  number of files read.
+* **Steps 2C.2, 2C.3, 2C.4, 2C.5 and 2D** — these scripts previously
+  redirected every per-file status line to the logs only (`tee ... 
+  >/dev/null`), leaving the terminal blank for the whole run. Each now
+  displays the shared `[n/total] % complete / elapsed / ETA` progress line
+  during the loop. Per-file log lines, log paths, counts and summaries are
+  unchanged; the counter goes to stderr and is suppressed when stderr is
+  not a terminal (so log files never receive `\r` control characters).
+* The counter clears its own line with `\033[K` and the scripts print a
+  final newline after the loop, so all footers land exactly as before.
+* All embedded scripts re-verified with `bash -n` after the edits.
