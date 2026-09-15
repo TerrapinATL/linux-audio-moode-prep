@@ -6,7 +6,7 @@ Remaining user action: SHA-512 checksum generation (separate repo).
 (Prose and script corrections applied 2026-09-14.)
 
 Change log and version history are maintained separately:
-[linux-audio-moode-cleanup-guide-v28-changelog.md](linux-audio-moode-cleanup-guide-v28-changelog.md)
+[linux-audio-moode-cleanup-guide-v28-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
 
 ---
 
