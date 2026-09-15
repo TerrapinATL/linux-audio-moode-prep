@@ -1,12 +1,12 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v28 — FINAL** — Current version; supersedes v27. The full pipeline
-has been run end-to-end against the production library and verified clean.
-Remaining user action: SHA-512 checksum generation (separate repo).
-(Prose and script corrections applied 2026-09-14.)
+**Version: v29** — Current version; supersedes v28. Adds live progress
+counters to the long-running scripts that previously ran silently
+(Step 1 cache pre-warm, Steps 2C.2–2C.5 and 2D).
+(Progress-counter work applied 2026-09-15.)
 
 Change log and version history are maintained separately:
-[linux-audio-moode-cleanup-guide-v28-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
+[linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
 
 ---
 
@@ -278,6 +278,10 @@ set -u
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
 STEP="step01"
 
+# AUTOPURGE: remove all logs from any previous run of this workflow.
+# This runs at the START of the workflow, so the previous run's logs remain
+# on disk for review until the next run replaces them.
+rm -rf "$LOG_ROOT"
 mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
@@ -314,22 +318,33 @@ if [ -t 0 ]; then
             echo "=== Step 1 Cache Pre-Warm (read-only) ===" | tee -a "$PREWARM_LOG"
             echo "Started: $(date)" | tee -a "$PREWARM_LOG"
             start=$(date +%s)
+            # File list first (metadata-only pass) so a % counter can be shown
+            mapfile -d '' pw_files < <(
+                find "$PWD" -type f \
+                    ! -ipath '*/Ignore/*' \
+                    ! -iname '*.prerepair*' \
+                    ! -iname '*.fixed.*' \
+                    ! -iname '*.reencode.*' \
+                    ! -iname '*.sha512sums.txt' \
+                    \( \
+                        -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
+                        -iname "*.ogg"  -o -iname "*.opus" -o -iname "*.wav" -o \
+                        -iname "*.aiff" -o -iname "*.aif"  -o -iname "*.mp4" -o \
+                        -iname "*.ape"  -o -iname "*.wv"   -o -iname "*.spx" \
+                    \) -print0
+            )
+            pw_total=${#pw_files[@]}
+            pw_i=0
             # Single sequential read pass - friendliest for a mechanical HDD
-            find "$PWD" -type f \
-                ! -ipath '*/Ignore/*' \
-                ! -iname '*.prerepair*' \
-                ! -iname '*.fixed.*' \
-                ! -iname '*.reencode.*' \
-                ! -iname '*.sha512sums.txt' \
-                \( \
-                    -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
-                    -iname "*.ogg"  -o -iname "*.opus" -o -iname "*.wav" -o \
-                    -iname "*.aiff" -o -iname "*.aif"  -o -iname "*.mp4" -o \
-                    -iname "*.ape"  -o -iname "*.wv"   -o -iname "*.spx" \
-                \) -print0 \
-                | xargs -0 -r cat >/dev/null 2>>"$LOG_ROOT/step01-prewarm-errors.log"
+            for pw_f in "${pw_files[@]}"; do
+                ((pw_i++))
+                printf '\rPre-warming: %d/%d files (%d%%)' \
+                    "$pw_i" "$pw_total" $(( pw_i * 100 / pw_total ))
+                cat "$pw_f" >/dev/null 2>>"$LOG_ROOT/step01-prewarm-errors.log"
+            done
+            printf '\r\033[K'
             end=$(date +%s)
-            echo "SUMMARY: pre-warm finished in $((end-start))s." | tee -a "$PREWARM_LOG"
+            echo "SUMMARY: pre-warm read $pw_total files in $((end-start))s." | tee -a "$PREWARM_LOG"
             ;;
         *)
             echo "Skipping cache pre-warm."
@@ -1197,6 +1212,23 @@ if ! command -v metaflac >/dev/null 2>&1 || ! command -v flac >/dev/null 2>&1; t
     exit 1
 fi
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
 count_ok=0
 count_fail=0
 i=0
@@ -1204,6 +1236,7 @@ i=0
 while IFS= read -r -d '' file; do
     [[ "${file,,}" == *.flac ]] || continue
     i=$((i + 1))
+    progress "$i" "$count_total"
 
     tmp_tags="$WORK_DIR/tags.$i"
     : > "$tmp_tags"
@@ -1262,6 +1295,7 @@ while IFS= read -r -d '' file; do
 
     rm -f "$tmp_tags" "$tmp_tags.dedup"
 done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
 rm -rf "$WORK_DIR"
 
@@ -1346,6 +1380,23 @@ if ! python3 -c "import eyed3" >/dev/null 2>&1; then
     exit 1
 fi
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
 count_ok=0
 count_fail=0
 count_review=0
@@ -1354,6 +1405,7 @@ i=0
 while IFS= read -r -d '' file; do
     [[ "${file,,}" == *.mp3 ]] || continue
     i=$((i + 1))
+    progress "$i" "$count_total"
 
     python3 - "$file" <<'PYEOF' 2>>"$ERRORS_LOG"
 import sys
@@ -1425,6 +1477,7 @@ PYEOF
         echo "FAIL [$i/$count_total] :: $file (dedup engine error - see step02c-errors.log)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
     fi
 done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
 echo "STEP02C_MP3_OK=$count_ok" >> "$SUMMARY_LOG"
 echo "STEP02C_MP3_FAIL=$count_fail" >> "$SUMMARY_LOG"
@@ -1530,6 +1583,23 @@ if [ "$needs_wv" -eq 1 ] && ! command -v wvtag >/dev/null 2>&1; then
     exit 1
 fi
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
 count_clean=0
 count_review=0
 count_fail=0
@@ -1542,6 +1612,7 @@ while IFS= read -r -d '' file; do
     case "$ext_lc" in
         m4a|mp4)
             i=$((i + 1))
+            progress "$i" "$count_total"
 
             atoms=$(AtomicParsley "$file" -t 2>>"$ERRORS_LOG")
             rc=$?
@@ -1569,6 +1640,7 @@ while IFS= read -r -d '' file; do
             ;;
         wv)
             i=$((i + 1))
+            progress "$i" "$count_total"
 
             wvtag -l "$file" > "$WORK_DIR/wvtag.$i" 2>>"$ERRORS_LOG"
             rc=$?
@@ -1589,6 +1661,7 @@ while IFS= read -r -d '' file; do
             ;;
     esac
 done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
 rm -rf "$WORK_DIR"
 
@@ -1705,6 +1778,23 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
     exit 1
 fi
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
 count_ok=0
 count_fail=0
 i=0
@@ -1717,6 +1807,7 @@ while IFS= read -r -d '' file; do
         *) continue ;;
     esac
     i=$((i + 1))
+    progress "$i" "$count_total"
 
     tmp_tags="$WORK_DIR/tags.$i"
     : > "$tmp_tags"
@@ -1798,6 +1889,7 @@ while IFS= read -r -d '' file; do
             ;;
     esac
 done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
 rm -rf "$WORK_DIR"
 
@@ -1946,6 +2038,23 @@ fi
 # Count total candidates upfront for progress reporting
 total_files=$(grep -c $'\0' "$CANDIDATE_LIST" || grep -c '^' "$CANDIDATE_LIST")
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
 echo "Notice: Integrity checking in progress."
 echo "Total files to process: $total_files"
 echo
@@ -1957,6 +2066,7 @@ current=0
 
 while IFS= read -r -d '' file; do
     current=$((current + 1))
+    progress "$current" "$total_files"
 
     if [ ! -r "$file" ]; then
         echo "ERROR [$current/$total_files] :: $file (unreadable)" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
@@ -1982,6 +2092,7 @@ while IFS= read -r -d '' file; do
         corrupt_count=$((corrupt_count + 1))
     fi
 done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
 echo "PASSED_FILES=$passed_count" | tee -a "$SUMMARY_LOG" >/dev/null
 echo "CORRUPT_FILES=$corrupt_count" | tee -a "$SUMMARY_LOG" >/dev/null
