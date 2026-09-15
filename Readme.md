@@ -1,6 +1,9 @@
-# [Linux Audio Utilities](https://github.com/TerrapinATL/linux.audio.flac-clean-up/edit/main/Readme.md)
+# Linux Audio Utilities — moOde Library Cleanup Guide
 
-**Guide version: v26** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v25.
+**Guide version: v28 — FINAL** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v27. The full pipeline has been run end-to-end against the production library and verified clean. Remaining user action: SHA-512 checksum generation (separate repo). Prose and script corrections applied 2026-09-14 (see the change log).
+
+* Full guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
+* Change log: [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
 
 A collection of lightweight command-line workflows and utilities designed for validating, cleaning, managing, and backing up local music libraries on Linux.
 
@@ -27,12 +30,12 @@ Parent/
 
 Why it matters:
 
-* **The 13e failsafe verifies embedded tags against folder and file names.** Artist comes from the parent folder, Album Year/Album name from the album folder, Track number/Title from the filename. The filesystem becomes the reference schema for what each file must be tagged.
+* **Step 9 (Verify Tags Against Filenames) verifies embedded tags against folder and file names.** Artist comes from the parent folder, Album Year/Album name from the album folder, Track number/Title from the filename. The filesystem becomes the reference schema for what each file must be tagged.
 * **Tags can be rebuilt from names alone** if metadata is ever lost or corrupted — losslessly, with audio untouched.
 * **Zero-padded track numbers sort correctly** in moOde, mpd, SHA-512 manifests, and file managers.
 * **The checksum and recertification guides use the same layout**, so album- and artist-level manifests stay consistent with what moOde displays.
 
-Steps 1–8 (integrity, deduplication, rebuild, ReplayGain) process any folder layout. But the confirmation layers — 13e, Write Tags, checksum tools — are built around this convention.
+Steps 0–10 (integrity, naming, deduplication, rebuild, ReplayGain) process any folder layout. But the confirmation layers — Step 9, Write Tags, checksum tools — are built around this convention.
 
 ## Included Tools & Guides
 
@@ -44,28 +47,35 @@ Steps 1–8 (integrity, deduplication, rebuild, ReplayGain) process any folder l
 
 Ensure you have the following command-line utilities installed on your system:
 
-* `ffmpeg`
-* `flac`
+* `flac` / `metaflac`
+* `ffmpeg` / `ffprobe`
 * `loudgain`
-* `rsync`
+* `python3` with the `eyed3` module
+* `vorbiscomment`, `opustags`
+* `AtomicParsley`, `wvtag`
+* `jq`
+* GNU Core Utilities (`find`, `sort`, `awk`, `grep`, `wc`, `basename`, `dirname`, `mktemp`, `tee`)
+* `rsync` (for backup workflows)
+
+A Software Preflight script (Section 02 of the guide) verifies every required tool and Python module before anything runs and fails loudly with install hints if anything is missing.
 
 **Directory Permissions:** Before running any batch processing scripts, verify that your current user has full read and write permissions to the target library directory to prevent "Permission Denied" failures during execution.
 
 ## Recommended Workflow
 
-A four part series to clean, verify, and lockdown securely the integrity of an audio file library. 
+A four part series to clean, verify, and lockdown securely the integrity of an audio file library.
 
 1. linux-audio-moode-prep: https://github.com/TerrapinATL/linux-audio-moode-prep
 
 2. linux-audio-sha512-checksums: https://github.com/TerrapinATL/linux-audio-sha512-checksums
 
-3. linux-os-nemo-sha512-shortcut:https://github.com/TerrapinATL/linux-os-nemo-sha512-shortcut
+3. linux-os-nemo-sha512-shortcut: https://github.com/TerrapinATL/linux-os-nemo-sha512-shortcut
 
 4. linux-audio-folder-recertification: https://github.com/TerrapinATL/linux-audio-folder-recertification
 
 ## Disclaimer
 
-This file was created as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, and user.
+This file was created as a mix of AI generated content, user input, and user editing. It was a cooperative effort between Claude, Gemini, ChatGPT, Mistral, and the user, built and polished with the OpenCode project: https://opencode.ai/
 
 ## IMPORTANT
 
@@ -102,7 +112,4 @@ SanDisk 128gb MicroSD Card: https://www.amazon.com/SANDISK-128GB-Extreme-microSD
 HDMI Cable: https://www.amazon.com/UGREEN-Certified-Aluminum-Compatible-Blu-ray/dp/B0CFFFSFFN
 
 
-Note: These are recommendations based upon my experiences. I receive zero compensation for them. Please consider them a guide, nothing more. Your configuration may vary. For me, this worked quite well. 
-
-
-
+Note: These are recommendations based upon my experiences. I receive zero compensation for them. Please consider them a guide, nothing more. Your configuration may vary. For me, this worked quite well.
