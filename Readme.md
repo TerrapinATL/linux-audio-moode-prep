@@ -1,6 +1,6 @@
 # Linux Audio Utilities — moOde Library Cleanup Guide
 
-**Guide version: v28 — FINAL** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v27. The full pipeline has been run end-to-end against the production library and verified clean. Remaining user action: SHA-512 checksum generation (separate repo). Prose and script corrections applied 2026-09-14 (see the change log).
+**Guide version: v29** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v28. Live progress counters added to the previously silent long-running scripts (Step 1 cache pre-warm, Steps 2C.2–2C.5, 2D) on 2026-09-15 (see the change log).
 
 * Full guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 * Change log: [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
