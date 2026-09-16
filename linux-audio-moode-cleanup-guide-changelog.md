@@ -6,9 +6,11 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v29** — supersedes v28. Adds live progress counters to
-the long-running scripts that previously ran silently (Step 1 cache
-pre-warm, Steps 2C.2–2C.5 and 2D). See the v29 entries below.
+**Current version: v31** — supersedes v30. Complete-update revision:
+Step 5 Ignore-folder fix, preflight disk-space check, Step 9 path
+fallback, TIFF artwork support, Step 2C.6 breakdown, Step 3 label
+alignment, and suite-wide screen-style alignment. See the v31 entry
+below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -95,3 +97,84 @@ since v28:
 * The counter clears its own line with `\033[K` and the scripts print a
   final newline after the loop, so all footers land exactly as before.
 * All embedded scripts re-verified with `bash -n` after the edits.
+
+---
+
+## v30 Change Log (2026-09-16)
+
+* **Documentation only — no script changes.** Added a note to the
+  Introduction (Preamble) explaining `.prerepair` files: they are
+  intentional safety copies created by Step 3A (Container Rebuild backs
+  up every file as `FILE.prerepair` before overwriting it with the
+  rebuilt container) and deleted by Step 7 (Remove Loose Files). While
+  they exist they are skipped by every other step (integrity tests, tag
+  work, ReplayGain, checksums), must not be deleted manually, and must
+  not be included in SHA-512 manifests. The note also flags the
+  temporary ~2x disk-space footprint while the backup layer exists, and
+  clarifies that the v28 "no residuals" caution covers Step 8's
+  self-deleting backups only — not Step 3A's.
+* The same explanation was mirrored in the per-repo `README.md`.
+* Motivation: during the 2026-09 walkthrough the full `.prerepair` set
+  (7,961 files, ~254 GB, 763 albums) was initially mistaken for residue
+  from an old version; the lifecycle is by design.
+
+---
+
+## v31 Change Log (2026-09-16)
+
+Complete-update revision implementing the accumulated wish list. Summary
+of changes from v30:
+
+* **Step 5 — Ignore-folder bug fixed (functional).** The directory scan
+  excluded `*/Ignore/*`, which skips files *under* Ignore but not the
+  `Ignore` folder itself — album-nested Ignore folders with direct audio
+  were counted as albums and processed (observed 2026-09-15: 784
+  processed = 763 albums + 21 Ignore folders). Step 5 and 15b now use
+  `! -ipath '*/Ignore/*' ! -ipath '*/Ignore' ! -iname 'Ignore'`, so
+  Ignore content is fully outside the ReplayGain and cover-consolidation
+  passes. (ReplayGain tags written to ignored files on 2026-09-15 were
+  metadata-only; no audio changed.)
+* **Preflight disk-space check (functional, high priority).** The
+  Section 02 preflight now measures the audio total in the run root and
+  the free space on that filesystem, prints both on screen
+  (`Library audio size: N GB / Free space: N GB`), and adds a loud
+  WARNING to the result if free space is insufficient — because Step 3
+  duplicates the library as `.prerepair` backups until Step 7 removes
+  them. Calculated per library, nothing hardcoded. Prose added to the
+  preflight description and cross-referenced from the Introduction's
+  `.prerepair` note.
+* **Step 9 — UNPARSEABLE path fallback.** The mismatch log can never
+  contain a pathless entry: if the relative-path strip yields an empty
+  string, the full source path is used. (Observed 2026-09-16: a
+  `UNPARSEABLE||` entry with an empty path field from a non-canonical
+  runtime copy.)
+* **TIFF artwork support in 15b (functional).** TIFF/TIF files are now
+  recognized by the directory-detection scan, the stray-promotion
+  fallback, and the extras log, and convert to `Cover.jpg` at q:v 2 like
+  PNGs. A successfully converted TIFF's source file is removed and the
+  removal logged — moOde cannot use TIFF and the SHA-512 guide's stray
+  audit would otherwise flag it forever. Prose updated.
+* **Step 2C.6 — per-format breakdown and output order.** The summary now
+  reads the per-format counters written by Steps 2C.2–2C.5
+  (`STEP02C_FLAC_*`, `MP3_*`, `M4A_WV_*`, `VORBIS_*`) and prints a
+  per-filetype table (OK/clean, FAIL, REVIEW) in both the summary log and
+  the terminal. The recap now appears ABOVE the footer (footer strictly
+  last, per suite convention), is restyled with the standard 40-dash
+  dividers, and is retitled "Step 2C Summary Review" (the footer remains
+  "Step 2C.6 - Summary").
+* **Step 3 label alignment.** The run script's guide divider is now
+  `Bash Script Step 3` (the script always self-labeled "Step 3") and the
+  log-viewer is `Bash Script Cat 3` with content "Step 3 – View Log
+  Results" — matching every other step's unlettered pattern. Prose
+  references updated.
+* **Screen style alignment (cosmetic).** Step 3 (container rebuild) now
+  breaks with a blank line on album change (Step 4 style). Step 5 breaks
+  on ARTIST change (user preference). The full-library counter steps
+  (2C.2–2C.5, 2D, 8, 9, 10, 15a, 15b, 15c) now print an album header —
+  `── Artist/Album ──` (stderr) — whenever the loop enters a new album,
+  clearing the counter line first so the header stays readable; the
+  counter resumes on the next line. Step 10's former blank-line break was
+  upgraded to the same header. All per-file FAIL lines remain terminal
+  visible; per-file OK lines remain log-only in the counter steps.
+* All embedded scripts re-verified with `bash -n`; preflight disk-space
+  logic functionally tested.
