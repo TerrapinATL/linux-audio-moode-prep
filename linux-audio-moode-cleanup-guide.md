@@ -1,9 +1,11 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v29** — Current version; supersedes v28. Adds live progress
-counters to the long-running scripts that previously ran silently
-(Step 1 cache pre-warm, Steps 2C.2–2C.5 and 2D).
-(Progress-counter work applied 2026-09-15.)
+**Version: v31** — Current version; supersedes v30. Complete-update
+revision: Step 5 Ignore-folder fix, preflight disk-space check, Step 9
+path fallback, TIFF artwork support in 15b/15c, Step 2C.6 breakdown and
+output order, Step 3 label alignment, and suite-wide screen-style
+alignment (album breaks / album headers + progress counters).
+(Complete update applied 2026-09-16.)
 
 Change log and version history are maintained separately:
 [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
@@ -19,6 +21,8 @@ This document is a technical guide and automated script workflow for auditing, r
 It covers FLAC, MP3, M4A/AAC, WavPack, OGG, and Opus formats. Not all steps support all formats; see the Format Support Status table in Section 04 for details.
 
 Note: Always work off a backup library copy until a clean copy has been secured by sha512 checksums.
+
+Note: `*.prerepair` files are intentional safety copies, not corruption or residue. Step 3 (Container Rebuild) backs up every file as `FILE.prerepair` before overwriting it with the rebuilt container; Step 7 (Remove Loose Files) deletes them once their purpose is served. While they exist they are skipped by every other step (integrity tests, tag work, ReplayGain, checksums), so do not delete them manually and do not include them in SHA-512 manifests. While this backup layer exists the library temporarily occupies roughly twice its audio size, so ensure sufficient free disk space before running (see the disk-space note in the Preflight section). (The "Since v28" caution about automatic deletion refers to Step 8's own backups, which are self-deleting; Step 3's are removed by Step 7.)
 
 ---
 
@@ -53,6 +57,8 @@ To successfully execute the scripts and workflows in this guide, your system mus
 -- Software Preflight
 
 Run the preflight diagnostic below BEFORE starting any cleanup step. It verifies that every tool and Python module the guide requires is installed and importable, and fails loudly with install hints if anything is missing. This prevents silent mid-run failures and dead ends. It writes a diagnostic report to `~/.logs/linux-audio-moode-cleanup-guide/preflight.log` and does not modify any audio files.
+
+**Disk space:** the preflight also performs a dynamic disk-space check, calculated per library — nothing is hardcoded. Step 3 backs up every file as `FILE.prerepair` before overwriting it (Step 7 removes those backups afterwards), so from Step 3 until Step 7 the library needs free space roughly equal to its own audio size. The preflight measures the audio total in the run root and the free space on that filesystem, prints both on screen (e.g. `Library audio size: 254 GB / Free space: 180 GB`), and fails loudly if free space is insufficient.
 
 --- Bash Script Preflight Start ---
 ```bash
@@ -112,6 +118,48 @@ if command -v python3 >/dev/null 2>&1; then
 else
     printf "%-22s : MISSING (python3 not found; install the python3 package)\n" "eyed3-python-module" >> "$PREFLIGHT_LOG"
     missing=$((missing + 1))
+fi
+
+echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+echo "Software - Pass: $pass   Missing: $missing" | tee -a "$PREFLIGHT_LOG"
+
+# --- DISK-SPACE CHECK (dynamic, per library) -------------------------------
+# Step 3 backs up every file as FILE.prerepair before overwriting it and
+# Step 7 removes those backups, so the library needs free space roughly
+# equal to its own audio size from Step 3 until Step 7. Measure it here,
+# before anything runs — every library is different, so nothing is hardcoded.
+if [ "$missing" -eq 0 ]; then
+    echo "" | tee -a "$PREFLIGHT_LOG"
+    echo "Preflight - Disk-Space Check" | tee -a "$PREFLIGHT_LOG"
+    audio_bytes=$(find "$PWD" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname '*.prerepair*' ! -iname '*.fixed.*' ! -iname '*.reencode.*' \
+        \( -iname '*.flac' -o -iname '*.mp3'  -o -iname '*.m4a' -o \
+           -iname '*.ogg'  -o -iname '*.opus' -o -iname '*.wav'  -o \
+           -iname '*.aiff' -o -iname '*.aif'  -o -iname '*.mp4'  -o \
+           -iname '*.ape'  -o -iname '*.wv'   -o -iname '*.spx' \
+        \) -printf '%s\n' 2>/dev/null | awk '{s+=$1} END {printf "%.0f", s+0.5}')
+    if [ "${audio_bytes:-0}" -gt 0 ]; then
+        audio_gb=$(( audio_bytes / 1073741824 ))
+        avail_kb=$(df -Pk "$PWD" | awk 'NR==2 {print $4}')
+        avail_gb=$(( avail_kb / 1048576 ))
+        echo "Library audio size : ${audio_gb} GB" | tee -a "$PREFLIGHT_LOG"
+        echo "Free space         : ${avail_gb} GB on this filesystem" | tee -a "$PREFLIGHT_LOG"
+        if [ "$avail_gb" -ge "$audio_gb" ]; then
+            echo "DISK SPACE: OK - the Step 3 backup layer will fit (Needed: ${audio_gb} GB / Available: ${avail_gb} GB)." | tee -a "$PREFLIGHT_LOG"
+        else
+            echo "" | tee -a "$PREFLIGHT_LOG"
+            echo "****************************************************************" | tee -a "$PREFLIGHT_LOG"
+            echo "WARNING: INSUFFICIENT DISK SPACE" | tee -a "$PREFLIGHT_LOG"
+            echo "Needed: ${audio_gb} GB (Step 3 duplicates the library as" | tee -a "$PREFLIGHT_LOG"
+            echo "FILE.prerepair backups until Step 7 removes them)." | tee -a "$PREFLIGHT_LOG"
+            echo "Available: ${avail_gb} GB on this filesystem." | tee -a "$PREFLIGHT_LOG"
+            echo "Free up space or point the run at a larger filesystem." | tee -a "$PREFLIGHT_LOG"
+            echo "****************************************************************" | tee -a "$PREFLIGHT_LOG"
+            missing=$((missing + 1))
+            printf "%-22s : FAILED (needed ${audio_gb} GB, available ${avail_gb} GB)\n" "disk-space" >> "$PREFLIGHT_LOG"
+        fi
+    fi
 fi
 
 echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
@@ -1232,11 +1280,19 @@ progress() {
 count_ok=0
 count_fail=0
 i=0
+last_dir=""
 
 while IFS= read -r -d '' file; do
     [[ "${file,,}" == *.flac ]] || continue
     i=$((i + 1))
     progress "$i" "$count_total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
     tmp_tags="$WORK_DIR/tags.$i"
     : > "$tmp_tags"
@@ -1401,11 +1457,19 @@ count_ok=0
 count_fail=0
 count_review=0
 i=0
+last_dir=""
 
 while IFS= read -r -d '' file; do
     [[ "${file,,}" == *.mp3 ]] || continue
     i=$((i + 1))
     progress "$i" "$count_total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
     python3 - "$file" <<'PYEOF' 2>>"$ERRORS_LOG"
 import sys
@@ -1604,6 +1668,7 @@ count_clean=0
 count_review=0
 count_fail=0
 i=0
+last_dir=""
 
 while IFS= read -r -d '' file; do
     fname="$(basename "$file")"
@@ -1612,7 +1677,13 @@ while IFS= read -r -d '' file; do
     case "$ext_lc" in
         m4a|mp4)
             i=$((i + 1))
-            progress "$i" "$count_total"
+    progress "$i" "$count_total"
+    # Album header on folder change (stderr only; counter resumes below)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
             atoms=$(AtomicParsley "$file" -t 2>>"$ERRORS_LOG")
             rc=$?
@@ -1640,7 +1711,13 @@ while IFS= read -r -d '' file; do
             ;;
         wv)
             i=$((i + 1))
-            progress "$i" "$count_total"
+    progress "$i" "$count_total"
+    # Album header on folder change (stderr only; counter resumes below)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
             wvtag -l "$file" > "$WORK_DIR/wvtag.$i" 2>>"$ERRORS_LOG"
             rc=$?
@@ -1798,6 +1875,7 @@ progress() {
 count_ok=0
 count_fail=0
 i=0
+last_dir=""
 
 while IFS= read -r -d '' file; do
     fname="$(basename "$file")"
@@ -1808,6 +1886,13 @@ while IFS= read -r -d '' file; do
     esac
     i=$((i + 1))
     progress "$i" "$count_total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
     tmp_tags="$WORK_DIR/tags.$i"
     : > "$tmp_tags"
@@ -1939,6 +2024,16 @@ fail_count=$(grep -a '^FAIL' "$FAILS_LOG" 2>/dev/null | wc -l)
 review_count=$(grep -a '^REVIEW' "$FAILS_LOG" 2>/dev/null | wc -l)
 total=$(grep -a '^TOTAL_CANDIDATES=' "$SUMMARY_LOG" 2>/dev/null | cut -d= -f2)
 
+# Per-format counters, as written by Steps 2C.2 - 2C.5 (last value wins,
+# since repeat runs append). Any missing key reads as 0.
+kv() { grep -a "^$1=" "$SUMMARY_LOG" 2>/dev/null | tail -1 | cut -d= -f2; }
+flac_ok=$(kv STEP02C_FLAC_OK);        flac_fail=$(kv STEP02C_FLAC_FAIL)
+mp3_ok=$(kv STEP02C_MP3_OK);          mp3_fail=$(kv STEP02C_MP3_FAIL);   mp3_review=$(kv STEP02C_MP3_REVIEW)
+m4a_clean=$(kv STEP02C_M4A_WV_CLEAN); m4a_fail=$(kv STEP02C_M4A_WV_FAIL); m4a_review=$(kv STEP02C_M4A_WV_REVIEW)
+ogg_ok=$(kv STEP02C_VORBIS_OK);       ogg_fail=$(kv STEP02C_VORBIS_FAIL)
+: "${total:-0}" "${flac_ok:=0}" "${flac_fail:=0}" "${mp3_ok:=0}" "${mp3_fail:=0}" "${mp3_review:=0}"
+: "${m4a_clean:=0}" "${m4a_fail:=0}" "${m4a_review:=0}" "${ogg_ok:=0}" "${ogg_fail:=0}"
+
 {
 echo "Step 2C Summary"
 echo "=============="
@@ -1946,19 +2041,40 @@ echo
 echo "Step       : step02c"
 echo "Run Date   : $(date)"
 echo
-echo "Processed  : ${total:-0}"
+echo "Processed  : $total"
 echo "OK         : $ok_count"
 echo "FAIL       : $fail_count"
 echo "REVIEW     : $review_count"
+echo
+echo "Per-format breakdown (OK/clean, FAIL, REVIEW):"
+printf "  %-12s %10s %6s %7s\n" "FLAC" "$flac_ok" "$flac_fail" "-"
+printf "  %-12s %10s %6s %7s\n" "MP3" "$mp3_ok" "$mp3_fail" "$mp3_review"
+printf "  %-12s %10s %6s %7s\n" "M4A/MP4/WV" "$m4a_clean" "$m4a_fail" "$m4a_review"
+printf "  %-12s %10s %6s %7s\n" "OGG/OPUS" "$ogg_ok" "$ogg_fail" "-"
 } > "$SUMMARY_LOG"
 
+# Terminal output: the summary review comes FIRST; the footer is
+# strictly the final output before the shell prompt returns.
 echo
 echo "----------------------------------------"
-echo "Processed: ${total:-0}  OK: $ok_count  FAIL: $fail_count  REVIEW: $review_count"
+echo "Step 2C Summary Review"
+echo "----------------------------------------"
+echo "Processed  : $total"
+echo "OK         : $ok_count"
+echo "FAIL       : $fail_count"
+echo "REVIEW     : $review_count"
+echo
+echo "Format        OK/clean  FAIL  REVIEW"
+printf "  %-12s %10s %6s %7s\n" "FLAC" "$flac_ok" "$flac_fail" "-"
+printf "  %-12s %10s %6s %7s\n" "MP3" "$mp3_ok" "$mp3_fail" "$mp3_review"
+printf "  %-12s %10s %6s %7s\n" "M4A/MP4/WV" "$m4a_clean" "$m4a_fail" "$m4a_review"
+printf "  %-12s %10s %6s %7s\n" "OGG/OPUS" "$ogg_ok" "$ogg_fail" "-"
+echo
+echo "Summary written to : $SUMMARY_LOG"
+echo
 echo "----------------------------------------"
 echo "Step 2C.6 - Summary"
 echo "----------------------------------------"
-cat "$SUMMARY_LOG"
 
 ```
 --- Bash Script Step 2C.6 End ---
@@ -2063,10 +2179,18 @@ passed_count=0
 corrupt_count=0
 error_count=0
 current=0
+last_dir=""
 
 while IFS= read -r -d '' file; do
     current=$((current + 1))
     progress "$current" "$total_files"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
     if [ ! -r "$file" ]; then
         echo "ERROR [$current/$total_files] :: $file (unreadable)" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
@@ -2230,7 +2354,7 @@ No audio quality changes occur because the audio stream is copied rather than co
 
 \ ---------------------------------------------------------------------------------------
 
---- Bash Script Step 3A Start ---
+--- Bash Script Step 3 Start ---
 ```bash
 
 #!/usr/bin/env bash
@@ -2300,6 +2424,7 @@ fi
 
 total=${#files[@]}
 i=0
+last_album=""
 
 for f in "${files[@]}"; do
     ((i++))
@@ -2308,7 +2433,14 @@ for f in "${files[@]}"; do
     album=$(basename "$(dirname "$f")")
     track=$(basename "$f")
     label="$artist-$album-$track"
-    
+
+    # Insert a blank line on the terminal screen when moving to a new album
+    # (Step 4 screen style: album-broken, readable per-file output)
+    if [[ -n "$last_album" && "$album" != "$last_album" ]]; then
+        echo ""
+    fi
+    last_album="$album"
+
     # Preserve original extension
     fname=$(basename "$f")
     ext="${fname##*.}"
@@ -2417,13 +2549,13 @@ echo "Step 3 – Rebuild Audio Containers"
 echo "----------------------------------------"
 
 ```
---- Bash Script Step 3A End ---
+--- Bash Script Step 3 End ---
 
 \ ---------------------------------------------------------------------------------------
 
--- Step 3B: View Log Files
+-- Step 3: View Log Files
 
---- Bash Script Cat 3B Start ---
+--- Bash Script Cat 3 Start ---
 ```bash
 
 #!/usr/bin/env bash
@@ -2431,7 +2563,7 @@ echo "----------------------------------------"
 # Keep the terminal open on any failure so the error cause stays visible
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
-# Step 3B – View Log Results
+# Step 3 – View Log Results
 # ------------------------------------------------------------
 
 LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
@@ -2457,11 +2589,11 @@ echo "=== ${STEP}-fails.log ==="
 cat "$LOG_ROOT/${STEP}-fails.log"
 echo
 echo "----------------------------------------"
-echo "Step 3B – View Log Results"
+echo "Step 3 – View Log Results"
 echo "----------------------------------------"
 
 ```
---- Bash Script Cat 3B End ---
+--- Bash Script Cat 3 End ---
 
 ---
 
@@ -2757,7 +2889,9 @@ touch "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
 SUPPORTED_EXTS=(flac mp3 m4a ogg opus mp4 ape wv spx)
 
 # 5. Gather and sort directories by path (Artist/Album)
-mapfile -d '' dirs < <(find "$PWD" -type d ! -ipath '*/Ignore/*' -print0 | LC_ALL=C sort -f -z)
+mapfile -d '' dirs < <(find "$PWD" -type d \
+    ! -ipath '*/Ignore/*' ! -ipath '*/Ignore' ! -iname 'Ignore' \
+    -print0 | LC_ALL=C sort -f -z)
 
 # 6. Calculate total directories with supported audio files
 total=0
@@ -2775,6 +2909,7 @@ for d in "${dirs[@]}"; do
 done
 
 i=0
+last_artist=""
 
 # 7. Process each directory (album) in Artist/Album order
 for d in "${dirs[@]}"; do
@@ -2787,11 +2922,18 @@ for d in "${dirs[@]}"; do
     
     if [ ${#files[@]} -gt 0 ]; then
         i=$((i + 1))
-        
+
         artist=$(basename "$(dirname "$d")")
         album=$(basename "$d")
         label="$artist - $album"
-        
+
+        # Insert a blank line on the terminal screen when moving to a new
+        # ARTIST (user preference: ReplayGain output breaks per artist)
+        if [[ -n "$last_artist" && "$artist" != "$last_artist" ]]; then
+            echo ""
+        fi
+        last_artist="$artist"
+
         # Write header (assume OK; mark FAIL if any format fails)
         echo "OK [$i/$total] $label" | tee -a "$RUN_LOG" "$OKS_LOG"
         
@@ -3247,6 +3389,7 @@ mapfile -d '' files < <(
 
 total=${#files[@]}
 i=0
+last_dir=""
 
 # Progress line: [done/total] % complete, elapsed and ETA (terminal only)
 start_ts=$(date +%s)
@@ -3268,6 +3411,13 @@ progress() {
 for f in "${files[@]}"; do
     i=$((i+1))
     progress "$i" "$total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "${f#"$PWD"/}")"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
     artist=$(basename "$(dirname "$(dirname "$f")")")
     album=$(basename "$(dirname "$f")")
@@ -3588,13 +3738,22 @@ echo
 
 checked=0
 mismatched=0
+last_dir=""
 start_ts=$(date +%s)
 
 while IFS= read -r -d '' filepath; do
     checked=$((checked+1))
     progress "$checked" "$fmt_total"
+    # Album header on folder change (stderr only)
+    hdr="$(dirname "${filepath#"$TARGET"/}")"; [ "$filepath" != "${filepath#"$TARGET"/}" ] || hdr="$(dirname "$filepath")"
+    hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
     filename=$(basename "$filepath")
     rel="${filepath#"$TARGET"/}"
+    [ -n "$rel" ] || rel="$filepath"
     name_no_ext="${filename%.*}"
 
     parent_dir=$(dirname "$filepath")
@@ -3817,11 +3976,13 @@ for f in "${files[@]}"; do
     label="${f#"$PWD"/}"
     current_dir="$(dirname "$label")"
 
-    # Insert a blank line on terminal screen when moving to a new folder/album
+    # Album header on album change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
     if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
-        echo ""
+        printf '\r\033[K── %s ──\n' "$current_dir" >&2
     fi
     last_dir="$current_dir"
+
 
     case "${f,,}" in
         *.flac)
@@ -4017,6 +4178,7 @@ mapfile -d '' files < <(
 
 total=${#files[@]}
 i=0
+last_dir=""
 changed=0
 skipped=0
 failed=0
@@ -4041,6 +4203,13 @@ progress() {
 for f in "${files[@]}"; do
     i=$((i+1))
     progress "$i" "$total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "${f#"$PWD"/}")"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
     artist=$(basename "$(dirname "$(dirname "$f")")")
     album=$(basename "$(dirname "$f")")
@@ -4194,14 +4363,14 @@ This procedure standardizes which image file each album directory uses as its co
 
 Over years of collection, an album directory can accumulate wildly inconsistent artwork — `cover.jpg`, `folder.jpg`, stray PNGs, and so on — which makes cover display unpredictable.
 
-This step ensures every album directory has exactly one canonical `Cover.jpg` by renaming the highest-priority existing cover (PNGs are converted at q:v 2) and leaving every other image file in place, logged for review.
+This step ensures every album directory has exactly one canonical `Cover.jpg` by renaming the highest-priority existing cover (PNGs and TIFFs are converted at q:v 2) and leaving every other image file in place, logged for review. TIFF sources are consolidated — once a TIFF has been converted into `Cover.jpg`, the source `.tiff`/`.tif` file is removed (moOde cannot use TIFF, and the SHA-512 guide's stray audit would otherwise keep flagging it); the removal is logged in `step15b-run.log`.
 
 -- What It Does
 
 This step (folder covers only — audio files are never touched):
 
 * Scans the library by album directory for any image file.
-* Picks the highest-priority existing cover using moOde's coverart.php order (Cover.jpg, cover.jpg, Cover.jpeg, cover.jpeg, Cover.png, cover.png, Folder.* variants).
+* Picks the highest-priority existing cover using moOde's coverart.php order (Cover.jpg, cover.jpg, Cover.jpeg, cover.jpeg, Cover.png, cover.png, Folder.* variants). TIFF/TIF files are recognized as cover sources (converted to JPEG at q:v 2, source removed after a successful conversion) and by the stray-promotion fallback.
 * If no standard candidate exists, promotes the alphabetically-first stray image and logs the promotion for review.
 * Renames JPEG covers to `Cover.jpg`; converts PNG covers to JPEG at q:v 2.
 * Logs every other image file in the directory to step15b-review.log — nothing is deleted.
@@ -4220,7 +4389,7 @@ trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited wit
 # 15b. Consolidate Album Artwork -> one Cover.jpg per directory
 #   Per-directory rule (moOde coverart.php priority order):
 #     - The highest-priority existing cover becomes Cover.jpg
-#       (renamed if needed, PNG converted to JPEG at high quality)
+#       (renamed if needed; PNG and TIFF converted to JPEG at high quality)
 #     - Every OTHER image file in the dir is left in place and
 #       logged to step15b-review.log (nothing is deleted)
 #   Byte-identical renames never invalidate existing embeds.
@@ -4265,10 +4434,14 @@ progress() {
 
 # Dirs that contain any image file (Ignore dirs excluded)
 mapfile -d '' dirs < <(
-    find "$PWD" -type d ! -ipath '*/Ignore/*' -print0 | while IFS= read -r -d '' d; do
+    find "$PWD" -type d \
+        ! -ipath '*/Ignore/*' ! -ipath '*/Ignore' ! -iname 'Ignore' \
+        -print0 | while IFS= read -r -d '' d; do
         if compgen -G "$d/*.jpg" >/dev/null || compgen -G "$d/*.jpeg" >/dev/null || \
            compgen -G "$d/*.JPG" >/dev/null || compgen -G "$d/*.JPEG" >/dev/null || \
-           compgen -G "$d/*.png" >/dev/null || compgen -G "$d/*.PNG" >/dev/null; then
+           compgen -G "$d/*.png" >/dev/null || compgen -G "$d/*.PNG" >/dev/null || \
+           compgen -G "$d/*.tiff" >/dev/null || compgen -G "$d/*.tif" >/dev/null || \
+           compgen -G "$d/*.TIFF" >/dev/null || compgen -G "$d/*.TIF" >/dev/null; then
             printf '%s\0' "$d"
         fi
     done
@@ -4283,6 +4456,7 @@ failed=0
 
 for d in "${dirs[@]}"; do
     i=$((i+1))
+    printf '\r\033[K── %s ──\n' "${d#"$PWD"/}" >&2
     progress "$i" "$total"
 
     parent_dir="${d%/*}"
@@ -4302,7 +4476,7 @@ for d in "${dirs[@]}"; do
 
     # No standard candidate? Promote the alphabetically-first stray image.
     if [ -z "$best" ]; then
-        stray=$(find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | sort | head -1)
+        stray=$(find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.tiff' -o -iname '*.tif' \) | sort | head -1)
         if [ -n "$stray" ]; then
             best="$stray"
             echo "[$i/$total] REVIEW: $label :: promoting non-standard cover $(basename "$stray")" \
@@ -4341,6 +4515,25 @@ for d in "${dirs[@]}"; do
                 converted=$((converted+1))
                 echo "CONVERTED [$i/$total] $label :: $(basename "$best") -> Cover.jpg (png->jpg, q:v 2)" | tee -a "$LOG_ROOT/step15b-run.log"
                 ;;
+            tiff|tif|TIFF|TIF)
+                err=$(ffmpeg -y -nostdin -v error -i "$best" -q:v 2 "$target" 2>&1)
+                rc=$?
+                if [ $rc -ne 0 ] || [ ! -s "$target" ]; then
+                    flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                    echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step15b-run.log"
+                    echo "[$i/$total] ERROR (exit $rc, tiff->jpg convert): $label :: $best :: ${flat:-no stderr output}" \
+                        >> "$LOG_ROOT/step15b-errors.log"
+                    failed=$((failed+1))
+                    rm -f "$target"
+                    continue
+                fi
+                # TIFF cannot be used by moOde and would be flagged as a stray
+                # by the SHA-512 guide's audit, so the source is consolidated
+                # (removed) once its content lives in Cover.jpg.
+                rm -f "$best"
+                converted=$((converted+1))
+                echo "CONVERTED [$i/$total] $label :: $(basename "$best") -> Cover.jpg (tiff->jpg, q:v 2; source tiff removed)" | tee -a "$LOG_ROOT/step15b-run.log"
+                ;;
         esac
     fi
 
@@ -4349,7 +4542,7 @@ for d in "${dirs[@]}"; do
         [ "$extra" = "$target" ] && continue
         echo "[$i/$total] REVIEW: $label :: extra cover left in place: $(basename "$extra")" \
             >> "$LOG_ROOT/step15b-review.log"
-    done < <(find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | sort)
+    done < <(find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.tiff' -o -iname '*.tif' \) | sort)
 
 done
 
@@ -4504,6 +4697,7 @@ fi
 
 for d in "${dirs[@]}"; do
     i=$((i + 1))
+    printf '── %s ──\n' "${d#"$PWD"/}" >&2
 
     parent_dir="${d%/*}"
     artist="${parent_dir##*/}"
