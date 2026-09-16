@@ -1,6 +1,6 @@
 # Linux Audio Utilities — moOde Library Cleanup Guide
 
-**Guide version: v29** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v28. Live progress counters added to the previously silent long-running scripts (Step 1 cache pre-warm, Steps 2C.2–2C.5, 2D) on 2026-09-15 (see the change log).
+**Guide version: v31** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v30. Complete-update revision (2026-09-16): Step 5 Ignore-folder fix, preflight disk-space check, Step 9 path fallback, TIFF artwork support in 15b, Step 2C.6 per-format breakdown, Step 3 label alignment, and album-break/album-header screen alignment (see the change log).
 
 * Full guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 * Change log: [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
@@ -10,6 +10,16 @@ A collection of lightweight command-line workflows and utilities designed for va
 ## Overview
 
 This repository contains tools and documentation to help maintain a pristine, standardized digital music library. It focuses on batch processing, metadata management, loudness normalization, integrity verification, and efficient backups.
+
+## About `*.prerepair` Files
+
+`*.prerepair` files are **intentional safety copies**, not corruption or residue.
+
+* **Created by Step 3A (Container Rebuild):** every file is backed up as `FILE.prerepair` before its container is overwritten with the rebuilt version.
+* **Removed by Step 7 (Remove Loose Files)** once their purpose is served.
+* **Skipped by every other step** — integrity tests, tag work, ReplayGain, and checksums all exclude them. Do not delete them manually and do not include them in SHA-512 manifests.
+* **Disk space:** while this backup layer exists the library temporarily occupies roughly twice its audio size — ensure sufficient free space before running (the Preflight check warns if free space is insufficient).
+* The "no residuals" caution in the guide refers to Step 8's backups, which are self-deleting; Step 3A's are removed by Step 7.
 
 ## Library Naming Convention (Recommended for Best Results)
 
