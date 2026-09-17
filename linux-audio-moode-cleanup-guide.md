@@ -1,11 +1,11 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v31** — Current version; supersedes v30. Complete-update
-revision: Step 5 Ignore-folder fix, preflight disk-space check, Step 9
-path fallback, TIFF artwork support in 15b/15c, Step 2C.6 breakdown and
-output order, Step 3 label alignment, and suite-wide screen-style
-alignment (album breaks / album headers + progress counters).
-(Complete update applied 2026-09-16.)
+**Version: v32** — Current version; supersedes v31. Adds optional
+procedure 15d "Ignore-Content Certification": integrity-tests every
+audio file inside every `Ignore` folder and writes a self-contained
+`Ignore.sha512sums.txt` per folder, closing the last unprotected corner
+of the library (files hidden from moOde via `.mpdignore`).
+(15d added 2026-09-17.)
 
 Change log and version history are maintained separately:
 [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
@@ -256,7 +256,7 @@ Each operation begins with understanding the current state, then validates resul
 9. Verify Tags Against Filenames
 10. Final Integrity Test
 
-Optional procedures (Steps 15a–15c) handle edge cases. Files failing all steps should be replaced.
+Optional procedures (Steps 15a–15d) handle edge cases, including Ignore-content certification (15d). Files failing all steps should be replaced.
 
 -- Format Support Status
 
@@ -279,6 +279,7 @@ Optional procedures (Steps 15a–15c) handle edge cases. Files failing all steps
 | 15a  | Strip Problematic Metadata | FLAC only                                    | Complete — FLAC-only by design        |
 | 15b  | Cover Consolidation        | Format-agnostic (folder images)               | Complete — renames/converts covers, never deletes |
 | 15c  | Artwork Embeds             | FLAC/MP3/M4A/MP4 (OGG/Opus/AIFF/APE/DSF skip) | Complete                              |
+| 15d  | Ignore-Content Certification | Ignore folders (all formats)                | Complete                              |
 | 16   | Generate Checksums         | Format-agnostic                              | See separate SHA-512 repo             |
 |------|----------------------------|----------------------------------------------|---------------------------------------|
 
@@ -4911,6 +4912,292 @@ Directories without a standard cover image (Cover.jpg, cover.jpg, Folder.jpg, fo
 
 \---------------------------------------------------------------------------------------
 
+15d. Ignore-Content Certification
+
+---
+
+-- Purpose
+
+The `Ignore` folders hold library songs that moOde never plays (hidden via
+`.mpdignore` markers) — odd tracks, blanks, spoken word, or extra-long
+recordings — but they are still part of the collection and need protection
+from bit rot. Two facts define this step's job:
+
+* The SHA-512 guide's artist-level manifests already fingerprint the
+  contents of each album folder's Ignore subfolder inside the aggregate
+  hash, so corruption there will fail an artist-level verification. What
+  the aggregate cannot do is say *which* file rotted, and nothing has
+  ever decode-tested these files.
+* This step closes both gaps: it integrity-tests every audio file in
+  every `Ignore` folder and writes a self-contained
+  `Ignore.sha512sums.txt` manifest inside each folder, so per-file
+  detection and localized re-verification work without touching the
+  album/artist manifests.
+
+Ignore content stays OUT of the regular pipeline (no dedup, rebuild, or
+ReplayGain) and OUT of the album/artist manifests; `Ignore.sha512sums.txt`
+is a third accepted generic manifest name (the SHA-512 guide's stray
+audit and manifest-name checker accept it).
+
+-- What It Does
+
+For each `Ignore` folder (any depth, nested Ignore-in-Ignore skipped):
+
+* Verifies the existing `Ignore.sha512sums.txt` if one is present.
+* Creates the manifest when it is missing — hashing every regular file in
+  the folder (audio, artwork, notes, `.mpdignore`) except the manifest
+  itself.
+* Integrity-tests every audio file by full decode (`flac -t` for FLAC,
+  `ffmpeg` null-decode for the other formats) — these files have never
+  been decode-tested by Steps 1/4/10, which exclude Ignore content.
+* Reports failures loudly; never modifies audio or deletes anything.
+
+-- Regeneration
+
+If a verification fails and you have corrected or accepted the files
+(after investigation), delete that folder's `Ignore.sha512sums.txt` and
+re-run 15d to rebuild it.
+
+-- Logging
+
+Writes `step15d-run.log`, `step15d-oks.log`, `step15d-fails.log`,
+`step15d-errors.log`, and `step15d-summary.log` to
+`$HOME/.logs/linux-audio-moode-cleanup-guide`. Per-file OK lines are
+log-only; FAIL lines print to the terminal under the album header,
+per the suite screen convention.
+
+--- Bash Script for 15d Start ---
+
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
+# ------------------------------------------------------------
+# 15d. Ignore-Content Certification — decode-test + per-folder SHA-512
+# ------------------------------------------------------------
+
+set -u
+
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step15d"
+mkdir -p "$LOG_ROOT"
+
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
+
+: > "$RUN_LOG"; : > "$OKS_LOG"; : > "$FAILS_LOG"; : > "$ERRORS_LOG"; : > "$SUMMARY_LOG"
+
+# --- Preflight: required tools
+for tool in flac ffmpeg sha512sum; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
+
+# --- Discover Ignore folders (any depth, case-insensitive;
+#     nested Ignore-in-Ignore skipped)
+mapfile -d '' idirs < <(find "$PWD" -type d -iname 'Ignore' \
+    ! -ipath '*/Ignore/*' -print0 | LC_ALL=C sort -z)
+
+if [ "${#idirs[@]}" -eq 0 ]; then
+    echo
+    echo "----------------------------------------"
+    echo "15d. Ignore-Content Certification"
+    echo "No Ignore folders found - nothing to certify."
+    echo "----------------------------------------"
+    exit 0
+fi
+
+# --- Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
+MANIFEST_NAME="Ignore.sha512sums.txt"
+total_dirs=${#idirs[@]}
+
+mapfile -d '' all_audio < <(
+    find "${idirs[@]}" -maxdepth 1 -type f \( \
+        -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
+        -iname "*.ogg"  -o -iname "*.opus" -o -iname "*.wav"  -o \
+        -iname "*.aiff" -o -iname "*.aif"  -o -iname "*.ape"  -o \
+        -iname "*.wv"   -o -iname "*.spx" \
+    \) -print0 | LC_ALL=C sort -z
+)
+total_files=${#all_audio[@]}
+
+echo "========== 15d: Ignore-Content Certification ==========" | tee -a "$RUN_LOG"
+echo "Root: $PWD" | tee -a "$RUN_LOG"
+echo "Started: $(date)" | tee -a "$RUN_LOG"
+echo "Ignore folders: $total_dirs   Audio files: $total_files" | tee -a "$RUN_LOG"
+echo | tee -a "$RUN_LOG"
+
+manifests_created=0
+manifests_verified=0
+tested_ok=0
+tested_fail=0
+dir_idx=0
+j=0
+
+for d in "${idirs[@]}"; do
+    dir_idx=$((dir_idx + 1))
+    rel_dir="${d#"$PWD"/}"
+    printf '\r\033[K── %s ──\n' "$rel_dir" >&2
+    label="$(basename "$(dirname "$d")") - $(basename "$d") [Ignore]"
+
+    shopt -s nocaseglob nullglob
+    audio=("$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg "$d"/*.opus "$d"/*.wav \
+           "$d"/*.aiff "$d"/*.aif "$d"/*.ape "$d"/*.wv "$d"/*.spx)
+    shopt -u nocaseglob nullglob
+
+    manifest="$d/$MANIFEST_NAME"
+
+    # 1. Manifest: verify if present, create if missing
+    if [ -f "$manifest" ]; then
+        vout=$(cd "$d" && sha512sum -c --strict "$MANIFEST_NAME" 2>&1)
+        vrc=$?
+        if [ "$vrc" -eq 0 ]; then
+            manifests_verified=$((manifests_verified + 1))
+            echo "OK   [$dir_idx/$total_dirs] $rel_dir :: manifest verified ($(wc -l < "$manifest") entries)" >> "$RUN_LOG"
+            echo "OK   [$dir_idx/$total_dirs] $rel_dir" >> "$OKS_LOG"
+        else
+            flat=$(printf '%s\n' "$vout" | tr '\r\n' '  ' | tr -s ' ')
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$RUN_LOG"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$FAILS_LOG"
+            echo "[$dir_idx/$total_dirs] ERROR (manifest verify): $rel_dir :: ${flat:-no output}" >> "$ERRORS_LOG"
+        fi
+    else
+        if (cd "$d" && find . -maxdepth 1 -type f ! -name "$MANIFEST_NAME" -print0 \
+                | LC_ALL=C sort -z | xargs -0 -r sha512sum > "$MANIFEST_NAME" 2>>"$ERRORS_LOG"); then
+            manifests_created=$((manifests_created + 1))
+            echo "CREATED [$dir_idx/$total_dirs] $rel_dir :: $MANIFEST_NAME" >> "$RUN_LOG"
+            echo "CREATED [$dir_idx/$total_dirs] $rel_dir" >> "$OKS_LOG"
+        else
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir (manifest creation failed)"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$RUN_LOG"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$FAILS_LOG"
+        fi
+    fi
+
+    # 2. Integrity-test every audio file in this Ignore folder
+    for f in "${audio[@]}"; do
+        j=$((j + 1))
+        progress "$j" "$total_files"
+        case "${f,,}" in
+            *.flac) err=$(flac -s -t "$f" 2>&1); rc=$? ;;
+            *)      err=$(ffmpeg -nostdin -v error -i "$f" -f null - 2>&1); rc=$? ;;
+        esac
+        rel_f="${f#"$PWD"/}"
+        if [ "$rc" -eq 0 ]; then
+            tested_ok=$((tested_ok + 1))
+            echo "OK   [$j/$total_files] $rel_f" >> "$RUN_LOG"
+            echo "OK   [$j/$total_files] $rel_f" >> "$OKS_LOG"
+        else
+            flat=$(printf '%s\n' "$err" | tr '\r\n' '  ' | tr -s ' ')
+            tested_fail=$((tested_fail + 1))
+            echo "FAIL [$j/$total_files] $rel_f"
+            echo "FAIL [$j/$total_files] $rel_f" >> "$RUN_LOG"
+            echo "FAIL [$j/$total_files] $rel_f" >> "$FAILS_LOG"
+            echo "[$j/$total_files] ERROR (exit $rc): $rel_f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
+        fi
+    done
+done
+printf '\n' >&2
+
+{
+echo "Step 15d Summary"
+echo "=============="
+echo
+echo "Step               : step15d"
+echo "Run Date           : $(date)"
+echo
+echo "Ignore folders     : $total_dirs"
+echo "Manifests created  : $manifests_created"
+echo "Manifests verified : $manifests_verified"
+echo "Audio files tested : $j (OK: $tested_ok  FAIL: $tested_fail)"
+} > "$SUMMARY_LOG"
+
+echo
+echo "----------------------------------------"
+echo "Step 15d Summary Review"
+echo "----------------------------------------"
+echo "Ignore folders     : $total_dirs"
+echo "Manifests created  : $manifests_created"
+echo "Manifests verified : $manifests_verified"
+echo "Audio files tested : $j (OK: $tested_ok  FAIL: $tested_fail)"
+echo
+echo "Summary written to : $SUMMARY_LOG"
+echo
+echo "----------------------------------------"
+echo "15d – Ignore-Content Certification"
+echo "----------------------------------------"
+
+```
+--- Bash Script for 15d End ---
+
+\---------------------------------------------------------------------------------------
+
+-- Review Results
+
+View the generated reports by running:
+
+--- Bash Script Cat for 15d Start ---
+
+```bash
+
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step15d"
+
+cat "$LOG_ROOT/${STEP}-run.log"
+cat "$LOG_ROOT/${STEP}-oks.log"
+cat "$LOG_ROOT/${STEP}-fails.log"
+cat "$LOG_ROOT/${STEP}-errors.log"
+cat "$LOG_ROOT/${STEP}-summary.log"
+
+```
+--- Bash Script Cat for 15d End ---
+
+\---------------------------------------------------------------------------------------
+
+-- Expected Results
+
+A successful run produces:
+
+* step15d-run.log — Full transcript: one `── Ignore folder ──` header per
+  folder, `OK`/`CREATED`/`FAIL` lines per folder and per file.
+* step15d-oks.log — Folders whose manifest verified, and folders whose
+  manifest was newly created.
+* step15d-fails.log — Folders whose manifest verification failed or whose
+  creation failed, and any audio file that failed its decode test.
+* step15d-errors.log — Detailed verify/creation stderr for failed folders.
+* step15d-summary.log — Folder, manifest and test counts.
+
+First run: 21 manifests created (one per Ignore folder). Re-runs: all
+manifests verify. If verification fails after an intentional change
+(e.g., a track was replaced inside an Ignore folder), delete that
+folder's `Ignore.sha512sums.txt` and re-run 15d to rebuild it.
+
+\---------------------------------------------------------------------------------------
+
 16. Generate Checksums
 
 -- Purpose
@@ -4927,7 +5214,7 @@ Link to SHA-512 Repository: https://github.com/TerrapinATL/linux-audio-sha512-ch
 
 -- When to Generate Checksums
 
-Generate checksums on the working copy only after all cleanup steps (Steps 1-10 including Step 1B, plus any optional Steps 15a-15c you intend to run) are complete. SHA-512 hashes capture the file contents at the moment they are generated, so any later modification of the audio files will break previously generated checksum files.
+Generate checksums on the working copy only after all cleanup steps (Steps 1-10 including Step 1B, plus any optional Steps 15a-15d you intend to run) are complete. SHA-512 hashes capture the file contents at the moment they are generated, so any later modification of the audio files will break previously generated checksum files.
 
 After generating the checksum files, copy them along with the audio files to the Master Library and to your rsync backup drive, so the Master Library and every backup carries its own trusted fingerprint. Verify periodically with `sha512sum -c checksums.sha512` in each directory to catch bit rot early.
 
