@@ -6,11 +6,9 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v31** — supersedes v30. Complete-update revision:
-Step 5 Ignore-folder fix, preflight disk-space check, Step 9 path
-fallback, TIFF artwork support, Step 2C.6 breakdown, Step 3 label
-alignment, and suite-wide screen-style alignment. See the v31 entry
-below.
+**Current version: v32** — supersedes v31. Adds optional procedure 15d
+"Ignore-Content Certification" (integrity test + per-folder SHA-512
+manifests for Ignore content). See the v32 entry below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -178,3 +176,36 @@ of changes from v30:
   visible; per-file OK lines remain log-only in the counter steps.
 * All embedded scripts re-verified with `bash -n`; preflight disk-space
   logic functionally tested.
+
+---
+
+## v32 Change Log (2026-09-17)
+
+* **New optional procedure 15d — Ignore-Content Certification.** Closes
+  the last unprotected corner of the library: the audio inside `Ignore`
+  folders (library files hidden from moOde via `.mpdignore` — odd tracks,
+  blanks, spoken word, extra-long recordings; ~60 files, ~0.9 GB across
+  21 folders here). For each Ignore folder (any depth, nested
+  Ignore-in-Ignore skipped) 15d:
+  - verifies the existing `Ignore.sha512sums.txt` if present, or creates
+    it when missing (hashing every regular file in the folder except the
+    manifest itself, relative paths, sorted);
+  - integrity-tests every audio file by full decode (`flac -t` for FLAC,
+    `ffmpeg` null-decode for others) — these files were never
+    decode-tested before, since Steps 1/4/10 exclude Ignore content;
+  - never modifies audio, never deletes anything.
+* **Screen/log conventions** match the v31 standard: suite progress
+  counter with elapsed/ETA (terminal-only, stderr), per-folder album
+  headers (`── Artist/Album/Ignore ──`), per-file OK lines log-only and
+  FAIL lines terminal-visible, recap above a strictly-final footer,
+  standard `Cat for 15d` log-viewer block.
+* **Suite notes added:** pipeline table gains a 15d row; prose mentions
+  "(15a–15c)" updated to "(15a–15d)". Regeneration rule documented
+  (delete a folder's manifest and re-run 15d after an intentional
+  change). The SHA-512 guide (v15) accepts `Ignore.sha512sums.txt` as a
+  third generic manifest name in its stray audit, rogue-name check and
+  missing-manifest check.
+* Context: the SHA-512 guide's Step 6 audit flagged exactly 21
+  directories missing manifests — these were the 21 Ignore folders;
+  15d fills that gap with self-contained per-folder manifests.
+* All embedded scripts re-verified with `bash -n`.
