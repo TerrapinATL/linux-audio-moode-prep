@@ -1,6 +1,6 @@
 # Linux Audio Utilities — moOde Library Cleanup Guide
 
-**Guide version: v31** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v30. Complete-update revision (2026-09-16): Step 5 Ignore-folder fix, preflight disk-space check, Step 9 path fallback, TIFF artwork support in 15b, Step 2C.6 per-format breakdown, Step 3 label alignment, and album-break/album-header screen alignment (see the change log).
+**Guide version: v32** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v31. Adds optional procedure 15d "Ignore-Content Certification" (2026-09-17): integrity-tests every audio file inside every `Ignore` folder and writes a self-contained `Ignore.sha512sums.txt` per folder (see the change log).
 
 * Full guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 * Change log: [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
