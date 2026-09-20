@@ -2553,251 +2553,202 @@ No audio quality changes occur because the audio stream is copied rather than co
 
 \ ---------------------------------------------------------------------------------------
 
---- Script Step 3 Start ---
-```python
+--- Bash Script Step 3 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 3 – Rebuild Audio Containers (All Formats)
 # ------------------------------------------------------------
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step03"
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step03"
 
-
-def which(name):
-    return shutil.which(name) is not None
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
-for tool in ("ffmpeg", "ffprobe"):
-    if not which(tool):
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in ffmpeg ffprobe; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
-# 1. Define Log Files (Five-File Standard + warnings)
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OK_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAIL_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERROR_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-WARN_LOG = os.path.join(LOG_ROOT, f"{STEP}-warnings.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+# 1. Define Log Files (Five-File Standard)
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OK_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAIL_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERROR_LOG="$LOG_ROOT/${STEP}-errors.log"
+WARN_LOG="$LOG_ROOT/${STEP}-warnings.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-# 2/3. CLEANUP + Initialize this step's logs
-for path in (RUN_LOG, OK_LOG, FAIL_LOG, ERROR_LOG, WARN_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+# 2. CLEANUP: Delete this step's own logs from any previous run
+rm -f "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG" "$WARN_LOG" "$SUMMARY_LOG"
 
+# 3. Initialize Empty Log Files
+touch "$RUN_LOG" "$OK_LOG" "$FAIL_LOG" "$ERROR_LOG" "$WARN_LOG" "$SUMMARY_LOG"
 
-def decode_real(path):
-    """Measure the real decodable duration of a file in seconds (None if unreadable).
-
-    Header/format durations lie when a file is padded with junk (e.g. 0xFF fill),
-    so a full decode is the only truthful measure of what a player will hear.
-    """
-    r = subprocess.run(
-        ["ffmpeg", "-nostdin", "-v", "info", "-i", path, "-f", "null", "-"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=False)
-    times = re.findall(r"time=(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)", r.stderr)
-    if not times:
-        return None
-    h, m, s = times[-1].split(":")
-    if "." in s:
-        sec, frac = s.split(".")
-        return int(h) * 3600 + int(m) * 60 + int(sec) + int(frac) / (10 ** len(frac))
-    return int(h) * 3600 + int(m) * 60 + int(s)
-
+# Measure the real decodable duration of a file in seconds (empty if unreadable).
+# Header/format durations lie when a file is padded with junk (e.g. 0xFF fill),
+# so a full decode is the only truthful measure of what a player will hear.
+decode_real() {
+    ffmpeg -nostdin -v info -i "$1" -f null - 2>&1 |
+        grep -aoE 'time=[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,3})?' |
+        tail -1 | sed 's/time=//' |
+        awk -F'[:.]' '{f=$4; n=length(f); print ($1*3600)+($2*60)+$3+(f/(10^n))}'
+}
 
 # 4. File Discovery (all supported audio formats)
 #    Optional override: pass $1 = a NUL-terminated file list to re-process only
 #    those files (e.g. the failures from a previous run), instead of a full scan.
-if len(sys.argv) > 1 and os.access(sys.argv[1], os.R_OK):
-    with open(sys.argv[1], "rb") as f:
-        files = [p.decode("utf-8", "surrogateescape")
-                 for p in f.read().split(b"\0") if p]
-else:
-    EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif"]
-    find_args = ["find", os.getcwd(), "-type", "f",
-                 "!", "-ipath", "*/Ignore/*",
-                 "!", "-iname", "*.prerepair",
-                 "!", "-iname", "*.fixed.*",
-                 "!", "-iname", "*.reencode.*", "("]
-    for i, e in enumerate(EXTS):
-        if i:
-            find_args.append("-o")
-        find_args += ["-iname", f"*.{e}"]
-    find_args += [")", "-print0"]
-    err_sink = open(ERROR_LOG, "a")
-    try:
-        r = subprocess.run(find_args, stdout=subprocess.PIPE,
-                           stderr=err_sink, check=False)
-    finally:
-        err_sink.close()
-    files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-    files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # LC_ALL=C sort -z
+if [ -n "${1:-}" ] && [ -r "$1" ]; then
+    mapfile -d '' files < "$1"
+else
+mapfile -d '' files < <(
+    find "$PWD" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname "*.prerepair" \
+        ! -iname "*.fixed.*" \
+        ! -iname "*.reencode.*" \
+        \( \
+            -iname "*.flac" -o -iname "*.mp3"  -o -iname "*.m4a"  -o \
+            -iname "*.ogg"  -o -iname "*.opus" -o -iname "*.wav"  -o \
+            -iname "*.aiff" -o -iname "*.aif" \
+        \) -print0 2>>"$LOG_ROOT/${STEP}-errors.log" | LC_ALL=C sort -z
+)
+fi
 
-total = len(files)
-last_album = ""
+total=${#files[@]}
+i=0
+last_album=""
 
-for i, path in enumerate(files, 1):
-    artist = os.path.basename(os.path.dirname(os.path.dirname(path)))
-    album = os.path.basename(os.path.dirname(path))
-    track = os.path.basename(path)
-    label = f"{artist}-{album}-{track}"
+for f in "${files[@]}"; do
+    ((i++))
+
+    artist=$(basename "$(dirname "$(dirname "$f")")")
+    album=$(basename "$(dirname "$f")")
+    track=$(basename "$f")
+    label="$artist-$album-$track"
 
     # Insert a blank line on the terminal screen when moving to a new album
     # (Step 4 screen style: album-broken, readable per-file output)
-    if last_album and album != last_album:
-        print()
-    last_album = album
+    if [[ -n "$last_album" && "$album" != "$last_album" ]]; then
+        echo ""
+    fi
+    last_album="$album"
 
     # Preserve original extension
-    fixed = re.sub(r"\.[^.]*$", "", path) + ".fixed." + track.rsplit(".", 1)[1]
+    fname=$(basename "$f")
+    ext="${fname##*.}"
+    fixed="${f%.*}.fixed.${ext}"
 
-    r = subprocess.run(
-        ["ffmpeg", "-nostdin", "-nostats", "-loglevel", "error",
-         "-i", path, "-map_metadata", "0", "-c", "copy", fixed, "-y"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-        check=False)
-    rc = r.returncode
-    err_text = r.stderr
+    err=$(ffmpeg \
+        -nostdin \
+        -nostats \
+        -loglevel error \
+        -i "$f" \
+        -map_metadata 0 \
+        -c copy \
+        "$fixed" \
+        -y 2>&1)
+    rc=$?
 
     # Non-fatal MJPEG "unable to decode APP fields" warnings come from corrupt
     # embedded JPEG artwork; they must not fail a valid container rebuild.
-    warn = [l for l in err_text.splitlines()
-            if re.search(r"unable to decode APP fields|"
-                         "Invalid data found when processing input", l)]
-    err_lines = [l for l in err_text.splitlines()
-                 if not re.search(r"unable to decode APP fields|"
-                                  "Invalid data found when processing input", l)
-                 and l.strip()]
+    warn="$(printf '%s\n' "$err" | grep -E 'unable to decode APP fields|Invalid data found when processing input' || true)"
+    err="$(printf '%s\n' "$err" | grep -v -E 'unable to decode APP fields|Invalid data found when processing input' | grep -v '^[[:space:]]*$' || true)"
 
     # Duration sanity check: a silent partial copy must never replace the source.
     # 1) Cheap header check first; 2) if headers disagree by >2%, decode both sides
     # fully and compare their true decodable audio — sources padded with junk
     # (0xFF fill) lie about their real duration and must not be treated as lost.
-    def probe_duration(p):
-        r = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", p],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            check=False)
-        return r.stdout.strip()
-
-    in_dur = probe_duration(path)
-    out_dur = probe_duration(fixed)
-    junk_note = ""
-    dur_ok = True
-    if in_dur and out_dur:
-        a, b = float(in_dur), float(out_dur)
-        if abs(a - b) > 0.02 * a:
+    in_dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$f" 2>/dev/null)
+    out_dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$fixed" 2>/dev/null)
+    junk_note=""
+    dur_ok=1
+    if [ -n "$in_dur" ] && [ -n "$out_dur" ]; then
+        if ! awk -v a="$in_dur" -v b="$out_dur" 'BEGIN { d=a-b; if (d<0) d=-d; exit (d<=0.02*a ? 0 : 1) }'; then
             # Headers disagree by more than 2%: decode both and compare truthfully.
-            src_real = decode_real(path)
-            out_real = decode_real(fixed)
-            if src_real is not None and out_real is not None:
-                if abs(src_real - out_real) > 0.5:
-                    dur_ok = False
-                elif out_real - float(in_dur) > 45:
-                    junk_note = (f"source claimed {in_dur}s but only {src_real}s "
-                                 "decodable; junk tail removed")
-            else:
-                dur_ok = False
+            src_real=$(decode_real "$f")
+            out_real=$(decode_real "$fixed")
+            if [ -n "$src_real" ] && [ -n "$out_real" ]; then
+                if ! awk -v a="$src_real" -v b="$out_real" 'BEGIN { d=a-b; if (d<0) d=-d; exit (d<=0.5 ? 0 : 1) }'; then
+                    dur_ok=0
+                elif awk -v a="$out_real" -v b="$in_dur" 'BEGIN { exit !(b-a>45) }'; then
+                    junk_note="source claimed ${in_dur}s but only ${out_real}s decodable; junk tail removed"
+                fi
+            else
+                dur_ok=0
+            fi
+        fi
+    fi
 
-    if rc != 0 or err_lines or os.path.getsize(fixed) == 0 or not dur_ok:
-        flat = re.sub(r"\s+", " ", err_text.replace("\0", " ")).strip()
-        if os.path.exists(fixed):
-            os.unlink(fixed)
-        print(f"FAIL [{i}/{total}] {label}")
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(FAIL_LOG, f"FAIL [{i}/{total}] {label}")
-        detail = flat or "no stderr output"
-        if not dur_ok:
-            append(ERROR_LOG,
-                   f"[{i}/{total}] ERROR (exit {rc}, duration mismatch verified by "
-                   f"full decode: in={in_dur} out={out_dur}): {label} :: {path} :: {detail}")
-        else:
-            append(ERROR_LOG,
-                   f"[{i}/{total}] ERROR (exit {rc}): {label} :: {path} :: {detail}")
-        continue
-
-    # Back up the original once before overwriting (removed later by Step 7)
-    prerepair = path + ".prerepair"
-    if not os.path.exists(prerepair):
-        try:
-            shutil.copy2(path, prerepair)
-        except OSError:
-            os.unlink(fixed)
-            print(f"FAIL [{i}/{total}] {label}")
-            append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-            append(ERROR_LOG, f"[{i}/{total}] ERROR (backup failed): {label} :: "
-                              f"{path} :: could not create {prerepair}")
-            continue
-    try:
-        os.replace(fixed, path)
-        print(f"OK   [{i}/{total}] {label}")
-        append(RUN_LOG, f"OK   [{i}/{total}] {label}")
-        append(OK_LOG, f"OK   [{i}/{total}] {label}")
-        if warn:
-            append(WARN_LOG, f"[{i}/{total}] WARN: {label} :: embedded artwork "
-                             f"warnings: {' '.join(warn)}")
-        if junk_note:
-            append(WARN_LOG, f"[{i}/{total}] WARN: {label} :: {junk_note}")
-    except OSError as exc:
-        if os.path.exists(fixed):
-            os.unlink(fixed)
-        print(f"FAIL [{i}/{total}] {label}")
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERROR_LOG, f"[{i}/{total}] ERROR (move failed): {label} :: {path} :: "
-                          f"failed to move rebuilt file into place ({exc})")
+    if [ $rc -ne 0 ] || [ -n "$err" ] || [ ! -s "$fixed" ] || [ "$dur_ok" -ne 1 ]; then
+        flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
+        rm -f "$fixed"
+        echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+        if [ "$dur_ok" -ne 1 ]; then
+            echo "[$i/$total] ERROR (exit $rc, duration mismatch verified by full decode: in=$in_dur out=$out_dur): $label :: $f :: ${flat:-no stderr output}" >> "$ERROR_LOG"
+        else
+            echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERROR_LOG"
+        fi
+    else
+        # Back up the original once before overwriting (removed later by Step 7)
+        if [ ! -e "${f}.prerepair" ]; then
+            cp -p "$f" "${f}.prerepair" 2>>"$ERROR_LOG" || {
+                rm -f "$fixed"
+                echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+                echo "[$i/$total] ERROR (backup failed): $label :: $f :: could not create ${f}.prerepair" >> "$ERROR_LOG"
+                continue
+            }
+        fi
+        if mv -f "$fixed" "$f"; then
+            echo "OK   [$i/$total] $label" | tee -a "$RUN_LOG" "$OK_LOG"
+            if [ -n "$warn" ]; then
+                echo "[$i/$total] WARN: $label :: embedded artwork warnings: $(printf '%s' "$warn" | tr '\n' ' ')" >> "$WARN_LOG"
+            fi
+            if [ -n "$junk_note" ]; then
+                echo "[$i/$total] WARN: $label :: $junk_note" >> "$WARN_LOG"
+            fi
+        else
+            mv_rc=$?
+            rm -f "$fixed"
+            echo "FAIL [$i/$total] $label" | tee -a "$RUN_LOG" "$FAIL_LOG"
+            echo "[$i/$total] ERROR (mv exit $mv_rc): $label :: $f :: failed to move rebuilt file into place" >> "$ERROR_LOG"
+        fi
+    fi
+done
 
 # 5. Count Results
-with open(RUN_LOG) as f:
-    run_text = f.read()
-ok_count = sum(1 for l in run_text.splitlines() if l.startswith("OK"))
-fail_count = sum(1 for l in run_text.splitlines() if l.startswith("FAIL"))
+ok_count=$(grep -a "^OK" "$RUN_LOG" 2>/dev/null | wc -l)
+fail_count=$(grep -a "^FAIL" "$RUN_LOG" 2>/dev/null | wc -l)
 
 # 6. Generate Summary
-with open(SUMMARY_LOG, "w") as f:
-    f.write("Step 3 Summary\n==============\n\n")
-    f.write(f"Step       : {STEP}\n")
-    f.write(f"Run Date   : {time.strftime('%c')}\n\n")
-    f.write(f"Processed  : {total}\n")
-    f.write(f"Passed     : {ok_count}\n")
-    f.write(f"Failed     : {fail_count}\n")
+{
+echo "Step 3 Summary"
+echo "=============="
+echo
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
 
 # 7. Terminal Output
-print()
-print("----------------------------------------")
-print(f"Processed: {total}  Passed: {ok_count}  Failed: {fail_count}")
-print("----------------------------------------")
-print("Step 3 – Rebuild Audio Containers")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 3 – Rebuild Audio Containers"
+echo "----------------------------------------"
 
 ```
---- Script Step 3 End ---
+--- Bash Script Step 3 End ---
 
 \ ---------------------------------------------------------------------------------------
 
