@@ -6,9 +6,9 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v32** — supersedes v31. Adds optional procedure 15d
-"Ignore-Content Certification" (integrity test + per-folder SHA-512
-manifests for Ignore content). See the v32 entry below.
+**Current version: v33** — supersedes v32. Converts every Step 2C
+sub-step script from bash to extensionless Python and fixes the Opus
+tool invocations for opustags 1.9.x. See the v33 entry below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -209,3 +209,37 @@ of changes from v30:
   directories missing manifests — these were the 21 Ignore folders;
   15d fills that gap with self-contained per-folder manifests.
 * All embedded scripts re-verified with `bash -n`.
+
+---
+
+## v33 Change Log (2026-09-20)
+
+* **Step 2C fully converted to Python (no-.sh policy).** All six embedded
+  sub-step scripts — 2C.1 Initialize, 2C.2 FLAC Auto-Fix, 2C.3 MP3
+  Auto-Fix, 2C.4 M4A/MP4/WavPack Review Flag, 2C.5 OGG/Opus Auto-Fix,
+  2C.6 Summary — are now extensionless Python with a
+  `#!/usr/bin/env python3` shebang. Behavior, log files, screen
+  conventions (stderr progress counter with elapsed/ETA, per-album
+  `── Artist/Album ──` headers, log-only OK lines, recap footer) match
+  the v31/v32 screen-and-log standard.
+* **Opus tool invocations fixed for opustags 1.9.x.** The previous bash
+  2C.5 used `opustags -l FILE` (reading) and `opustags -s FILE -w FILE`
+  (writing), which are not valid options in opustags 1.9.0. The Python
+  version reads comments with a bare `opustags FILE` invocation and
+  writes the deduplicated set with `opustags -S -i FILE` (import comments
+  from standard input, in place). This makes the Opus path executable
+  against the current opustags release for the first time.
+* **MP3 dedup runs in-process.** 2C.3 imports `eyed3` directly instead of
+  spawning `python3 - file` per MP3; the return-code protocol (0/1 OK,
+  2 REVIEW, 3/4 FAIL) is unchanged.
+* **Verification.** All six scripts pass `py_compile`. End-to-end fixture
+  test (6 fabricated files: FLAC/MP3/OGG/Opus/M4A/WV, isolated HOME, real
+  duplicate tags injected into FLAC, MP3, OGG and Opus): duplicates were
+  removed and every rewritten file passed its decode check; M4A/WV
+  exercised the clean path (those containers' writers refuse duplicate
+  writes by design, matching the review-flag rationale). The prior
+  bash-era 2C draft scripts in ~/Downloads are superseded by this
+  conversion.
+* **Versioned copy** — the prior guide (v32) was archived as
+  `linux-audio-moode-cleanup-guide-v32.md` before editing, per the
+  update rule.

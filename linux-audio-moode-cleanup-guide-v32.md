@@ -1142,63 +1142,61 @@ The operation is strictly non-destructive:
 
 Verifies the Step 2A candidate list exists, clears this step's previous-run artifacts, and records the starting totals.
 
---- Script Step 2C.1 Start ---
-```python
+--- Bash Script Step 2C.1 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2C.1 — Initialize & Clean Logs
 # ------------------------------------------------------------
-import os
-import sys
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02c"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02c"
+mkdir -p "$LOG_ROOT"
 
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
 
-def bail(msg):
-    for path in (RUN_LOG, ERRORS_LOG):
-        with open(path, "a") as f:
-            f.write(msg + "\n")
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print(msg)
-    print("Run Step 2A first.")
-    print("----------------------------------------")
-    print("Step 2C.1 - Initialize & Clean Logs")
-    print("----------------------------------------")
-    sys.exit(1)
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
 
-if not (os.path.isfile(CANDIDATE_LIST) and os.path.getsize(CANDIDATE_LIST) > 0):
-    bail(f"ERROR: candidate list empty or missing :: {CANDIDATE_LIST}")
+if [ ! -s "$CANDIDATE_LIST" ]; then
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "Run Step 2A first."
+    echo "----------------------------------------"
+    echo "Step 2C.1 - Initialize & Clean Logs"
+    echo "----------------------------------------"
+    exit 1
+fi
 
-with open(CANDIDATE_LIST, "rb") as f:
-    total = f.read().count(b"\0")
+total=$(tr -cd '\000' < "$CANDIDATE_LIST" | wc -c)
 
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"TOTAL_CANDIDATES={total}\n")
-    f.write("STATUS=OK\n")
+echo "TOTAL_CANDIDATES=$total" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
 
-print()
-print("----------------------------------------")
-print(f"Candidates found : {total}")
-print("----------------------------------------")
-print("Step 2C.1 - Initialize & Clean Logs")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Candidates found : $total"
+echo "----------------------------------------"
+echo "Step 2C.1 - Initialize & Clean Logs"
+echo "----------------------------------------"
 
 ```
---- Script Step 2C.1 End ---
+--- Bash Script Step 2C.1 End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -1206,233 +1204,171 @@ print("----------------------------------------")
 
 Exports all Vorbis comments with `metaflac`, drops duplicate entries that share the same key (case-insensitive) and the same value, and re-imports the deduplicated set. Audio data and non-comment metadata blocks (artwork, seek tables, padding) are left untouched. Every file is verified with `flac -t` before it is counted as OK.
 
---- Script Step 2C.2 Start ---
-```python
+--- Bash Script Step 2C.2 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
-# Step 2C.2 — FLAC Auto-Fix (Vorbis Comment Deduplication)
+# Step 2C.2 — FLAC Auto-Fix
 # ------------------------------------------------------------
-import os
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02c"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02c"
+mkdir -p "$LOG_ROOT"
 
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
-WORK_DIR = os.path.join(LOG_ROOT, "step02c-work")
-os.makedirs(WORK_DIR, exist_ok=True)
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
+WORK_DIR="$LOG_ROOT/step02c-work"
+mkdir -p "$WORK_DIR"
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+# First pass: count FLAC candidates for progress reporting
+count_total=0
+while IFS= read -r -d '' file; do
+    [[ "${file,,}" == *.flac ]] && count_total=$((count_total + 1))
+done < "$CANDIDATE_LIST"
 
+if [ "$count_total" -eq 0 ]; then
+    echo "STEP02C_FLAC_OK=0" >> "$SUMMARY_LOG"
+    echo "STEP02C_FLAC_FAIL=0" >> "$SUMMARY_LOG"
+    echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-def log_error(msg):
-    with open(ERRORS_LOG, "a") as f:
-        f.write(msg + "\n")
+    echo
+    echo "----------------------------------------"
+    echo "FLAC : 0 files to process"
+    echo "----------------------------------------"
+    echo "Step 2C.2 - FLAC Auto-Fix"
+    echo "----------------------------------------"
+    exit 0
+fi
 
+if ! command -v metaflac >/dev/null 2>&1 || ! command -v flac >/dev/null 2>&1; then
+    echo "ERROR: metaflac and flac are required for FLAC deduplication." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install the flac package and re-run Step 2C.2." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.2 - FLAC Auto-Fix"
+    echo "----------------------------------------"
+    exit 1
+fi
 
-def run(cmd, stdin=None):
-    """Run a command; append stderr to the error log; return (rc, stdout)."""
-    err_sink = open(ERRORS_LOG, "a")
-    try:
-        r = subprocess.run(cmd, stdin=stdin, stdout=subprocess.PIPE,
-                           stderr=err_sink, check=False)
-    finally:
-        err_sink.close()
-    return r.returncode, r.stdout
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
+count_ok=0
+count_fail=0
+i=0
+last_dir=""
 
-def which(name):
-    return shutil.which(name) is not None
+while IFS= read -r -d '' file; do
+    [[ "${file,,}" == *.flac ]] || continue
+    i=$((i + 1))
+    progress "$i" "$count_total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
+    tmp_tags="$WORK_DIR/tags.$i"
+    : > "$tmp_tags"
 
-def keep_open_on_error(code, stderr=sys.stderr):
-    if code != 0:
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
+    if ! metaflac --export-tags-to="$tmp_tags" "$file" 2>>"$ERRORS_LOG"; then
+        if [ ! -s "$tmp_tags" ]; then
+            # No comment block present — nothing to deduplicate
+            if flac -t -s "$file" >/dev/null 2>&1; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+            else
+                count_fail=$((count_fail + 1))
+                echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            fi
+        else
+            count_fail=$((count_fail + 1))
+            echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+        fi
+        rm -f "$tmp_tags"
+        continue
+    fi
 
+    # Drop repeats that share the same key (case-insensitive) and the same value
+    awk -F= '{ v = substr($0, index($0, "=") + 1); k = tolower($1); if (!seen[k "\034" v]++) print }' \
+        "$tmp_tags" > "$tmp_tags.dedup"
 
-with open(CANDIDATE_LIST, "rb") as f:
-    candidates = [p.decode("utf-8", "surrogateescape") for p in f.read().split(b"\0") if p]
-files = [p for p in candidates if p.lower().endswith(".flac")]
-count_total = len(files)
+    if cmp -s "$tmp_tags" "$tmp_tags.dedup"; then
+        # Already clean — verify and count OK without touching the file
+        if flac -t -s "$file" >/dev/null 2>&1; then
+            count_ok=$((count_ok + 1))
+            echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+        else
+            count_fail=$((count_fail + 1))
+            echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+        fi
+        rm -f "$tmp_tags" "$tmp_tags.dedup"
+        continue
+    fi
 
-if count_total == 0:
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STEP02C_FLAC_OK=0\nSTEP02C_FLAC_FAIL=0\nSTATUS=OK\n")
-    print()
-    print("----------------------------------------")
-    print("FLAC : 0 files to process")
-    print("----------------------------------------")
-    print("Step 2C.2 - FLAC Auto-Fix")
-    print("----------------------------------------")
-    sys.exit(0)
+    if metaflac --remove-all-tags "$file" 2>>"$ERRORS_LOG" && \
+       metaflac --import-tags-from="$tmp_tags.dedup" "$file" 2>>"$ERRORS_LOG" && \
+       flac -t -s "$file" >/dev/null 2>&1; then
+        count_ok=$((count_ok + 1))
+        echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+    else
+        # Failed replacement: restore the original tag set before it was removed
+        metaflac --remove-all-tags "$file" 2>>"$ERRORS_LOG"
+        if metaflac --import-tags-from="$tmp_tags" "$file" 2>>"$ERRORS_LOG" && flac -t -s "$file" >/dev/null 2>&1; then
+            count_fail=$((count_fail + 1))
+            echo "FAIL [$i/$count_total] :: $file (metadata replacement failed; original tags restored)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+        else
+            count_fail=$((count_fail + 1))
+            echo "FAIL [$i/$count_total] :: $file (metadata replacement AND restore failed - REVIEW)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+        fi
+    fi
 
-if not (which("metaflac") and which("flac")):
-    msg = ("ERROR: metaflac and flac are required for FLAC deduplication.\n"
-           "       Install the flac package and re-run Step 2C.2.")
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.2 - FLAC Auto-Fix")
-    print("----------------------------------------")
-    keep_open_on_error(1)
+    rm -f "$tmp_tags" "$tmp_tags.dedup"
+done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+rm -rf "$WORK_DIR"
 
+echo "STEP02C_FLAC_OK=$count_ok" >> "$SUMMARY_LOG"
+echo "STEP02C_FLAC_FAIL=$count_fail" >> "$SUMMARY_LOG"
+echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-def album_header(hdr):
-    if is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-
-
-def flac_ok(path):
-    return subprocess.run(
-        ["flac", "-t", "-s", path],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        check=False).returncode == 0
-
-
-def dedup_lines(lines):
-    """Drop repeats sharing the same key (case-insensitive) and value."""
-    seen, out = set(), []
-    for line in lines:
-        if "=" in line:
-            key, val = line.split("=", 1)
-            ident = (key.lower(), val)
-        else:
-            ident = line.lower()
-        if ident not in seen:
-            seen.add(ident)
-            out.append(line)
-    return out
-
-
-count_ok = count_fail = 0
-last_dir = ""
-
-try:
-    for i, path in enumerate(files, 1):
-        progress(i, count_total)
-        hdr = os.path.dirname(path)
-        if last_dir and hdr != last_dir and is_tty:
-            sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-        last_dir = hdr
-
-        tmp_tags = os.path.join(WORK_DIR, f"tags.{i}")
-        open(tmp_tags, "w").close()
-
-        rc, _ = run(["metaflac", f"--export-tags-to={tmp_tags}", path])
-        if rc != 0:
-            if os.path.getsize(tmp_tags) == 0:
-                # No comment block present — nothing to deduplicate
-                if flac_ok(path):
-                    count_ok += 1
-                    append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-                else:
-                    count_fail += 1
-                    append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path}")
-            else:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path}")
-            append(RUN_LOG, "processed")
-            os.unlink(tmp_tags)
-            continue
-
-        with open(tmp_tags, encoding="utf-8", errors="replace") as f:
-            lines = f.read().splitlines()
-        dedup = dedup_lines(lines)
-
-        tmp_dedup = tmp_tags + ".dedup"
-        with open(tmp_dedup, "w", encoding="utf-8") as f:
-            f.write("\n".join(dedup) + ("\n" if dedup else ""))
-
-        if dedup == lines:
-            # Already clean — verify and count OK without touching the file
-            if flac_ok(path):
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-            else:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path}")
-            append(RUN_LOG, "processed")
-            os.unlink(tmp_tags)
-            os.unlink(tmp_dedup)
-            continue
-
-        rc1, _ = run(["metaflac", "--remove-all-tags", path])
-        rc2, _ = run(["metaflac", f"--import-tags-from={tmp_dedup}", path])
-        if rc1 == 0 and rc2 == 0 and flac_ok(path):
-            count_ok += 1
-            append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-        else:
-            # Failed replacement: restore the original tag set before it was removed
-            run(["metaflac", "--remove-all-tags", path])
-            rcr, _ = run(["metaflac", f"--import-tags-from={tmp_tags}", path])
-            if rcr == 0 and flac_ok(path):
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path} "
-                                  "(metadata replacement failed; original tags restored)")
-            else:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path} "
-                                  "(metadata replacement AND restore failed - REVIEW)")
-        append(RUN_LOG, "processed")
-        os.unlink(tmp_tags)
-        os.unlink(tmp_dedup)
-finally:
-    if is_tty:
-        sys.stderr.write("\n")
-    shutil.rmtree(WORK_DIR, ignore_errors=True)
-
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"STEP02C_FLAC_OK={count_ok}\n")
-    f.write(f"STEP02C_FLAC_FAIL={count_fail}\n")
-    f.write("STATUS=OK\n")
-
-print()
-print("----------------------------------------")
-print(f"FLAC : {count_ok} OK  {count_fail} FAIL")
-print("----------------------------------------")
-print("Step 2C.2 - FLAC Auto-Fix")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "FLAC : $count_ok OK  $count_fail FAIL"
+echo "----------------------------------------"
+echo "Step 2C.2 - FLAC Auto-Fix"
+echo "----------------------------------------"
 
 ```
---- Script Step 2C.2 End ---
+--- Bash Script Step 2C.2 End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -1440,66 +1376,119 @@ print("----------------------------------------")
 
 Deduplication is intentionally limited to COMMENT and user-text (TXXX) frames — the two frame types most likely to pick up redundant entries from years of repeated ripping and tagging passes. Standard singular frames (title, artist, album, and similar) are never touched. The check runs through the `eyed3` Python module, which exposes the individual comment and user-text frames that the CLI display silently collapses. Requires `python3` with the `eyed3` Python module (note: eyeD3 0.9+ renamed the import to lowercase `eyed3`; if the module is missing, install it with `sudo apt install python3-eyed3` or `python3 -m pip install --user eyeD3`).
 
---- Script Step 2C.3 Start ---
-```python
+--- Bash Script Step 2C.3 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
-# Step 2C.3 — MP3 Auto-Fix (COMMENT & TXXX Deduplication)
+# Step 2C.3 — MP3 Auto-Fix
 # ------------------------------------------------------------
-import os
+
+set -u
+
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02c"
+mkdir -p "$LOG_ROOT"
+
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
+
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for MP3 deduplication." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    exit 1
+fi
+
+# First pass: count MP3 candidates for progress reporting
+count_total=0
+while IFS= read -r -d '' file; do
+    [[ "${file,,}" == *.mp3 ]] && count_total=$((count_total + 1))
+done < "$CANDIDATE_LIST"
+
+if [ "$count_total" -eq 0 ]; then
+    echo "STEP02C_MP3_OK=0" >> "$SUMMARY_LOG"
+    echo "STEP02C_MP3_FAIL=0" >> "$SUMMARY_LOG"
+    echo "STEP02C_MP3_REVIEW=0" >> "$SUMMARY_LOG"
+    echo "STATUS=OK" >> "$SUMMARY_LOG"
+
+    echo
+    echo "----------------------------------------"
+    echo "MP3 : 0 files to process"
+    echo "----------------------------------------"
+    echo "Step 2C.3 - MP3 Auto-Fix"
+    echo "----------------------------------------"
+    exit 0
+fi
+
+if ! python3 -c "import eyed3" >/dev/null 2>&1; then
+    echo "ERROR: the eyed3 Python module is not importable." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install it with:  sudo apt install python3-eyed3  (or: python3 -m pip install --user eyeD3)" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.3 - MP3 Auto-Fix"
+    echo "----------------------------------------"
+    exit 1
+fi
+
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
+
+count_ok=0
+count_fail=0
+count_review=0
+i=0
+last_dir=""
+
+while IFS= read -r -d '' file; do
+    [[ "${file,,}" == *.mp3 ]] || continue
+    i=$((i + 1))
+    progress "$i" "$count_total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
+
+    python3 - "$file" <<'PYEOF' 2>>"$ERRORS_LOG"
 import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02c"
-os.makedirs(LOG_ROOT, exist_ok=True)
-
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
-
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def log_error(msg):
-    with open(ERRORS_LOG, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0:
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-def mp3_dedup(path):
-    """Returns: 0 already clean/unreadable, 1 duplicates removed,
-    2 duplicates present but could not be saved safely, 3 engine error."""
+def run():
     try:
         import eyed3
         import eyed3.id3 as ID3
         import eyed3.id3.frames as FRAMES
     except Exception as e:
-        log_error(f"eyed3 module unavailable: {e}")
+        sys.stderr.write("eyed3 module unavailable: %s\n" % e)
         return 3
 
+    path = sys.argv[1]
     try:
         audio = eyed3.load(path)
     except Exception as e:
-        log_error(f"unable to load file: {e}")
+        sys.stderr.write("unable to load file: %s\n" % e)
         return 0  # unreadable/corrupt -> leave for the other repair steps
 
     tag = audio.tag if audio is not None else None
@@ -1525,111 +1514,50 @@ def mp3_dedup(path):
         try:
             tag.save(version=ID3.ID3_V2_4)
         except Exception as e:
-            log_error(f"unable to save changes: {e}")
+            sys.stderr.write("unable to save changes: %s\n" % e)
             return 2  # duplicates present but could not be saved safely
         return 1  # duplicates removed
     return 0  # already clean
 
-
-if not sys.executable:
-    keep_open_on_error(1)
-
-with open(CANDIDATE_LIST, "rb") as f:
-    candidates = [p.decode("utf-8", "surrogateescape") for p in f.read().split(b"\0") if p]
-files = [p for p in candidates if p.lower().endswith(".mp3")]
-count_total = len(files)
-
-if count_total == 0:
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STEP02C_MP3_OK=0\nSTEP02C_MP3_FAIL=0\nSTEP02C_MP3_REVIEW=0\nSTATUS=OK\n")
-    print()
-    print("----------------------------------------")
-    print("MP3 : 0 files to process")
-    print("----------------------------------------")
-    print("Step 2C.3 - MP3 Auto-Fix")
-    print("----------------------------------------")
-    sys.exit(0)
-
 try:
-    import eyed3  # noqa: F401
-except Exception:
-    msg = ("ERROR: the eyed3 Python module is not importable.\n"
-           "       Install it with:  sudo apt install python3-eyed3  "
-           "(or: python3 -m pip install --user eyeD3)")
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.3 - MP3 Auto-Fix")
-    print("----------------------------------------")
-    keep_open_on_error(1)
+    sys.exit(run())
+except SystemExit:
+    raise
+except Exception as e:
+    import traceback
+    sys.stderr.write("UNEXPECTED ERROR: %s\n" % e)
+    traceback.print_exc()
+    sys.exit(4)
+PYEOF
+    rc=$?
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ]; then
+        count_ok=$((count_ok + 1))
+        echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+    elif [ "$rc" -eq 2 ]; then
+        count_review=$((count_review + 1))
+        echo "REVIEW [$i/$count_total] :: $file (duplicate frames detected but could not be removed safely)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+    else
+        count_fail=$((count_fail + 1))
+        echo "FAIL [$i/$count_total] :: $file (dedup engine error - see step02c-errors.log)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+    fi
+done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
+echo "STEP02C_MP3_OK=$count_ok" >> "$SUMMARY_LOG"
+echo "STEP02C_MP3_FAIL=$count_fail" >> "$SUMMARY_LOG"
+echo "STEP02C_MP3_REVIEW=$count_review" >> "$SUMMARY_LOG"
+echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-count_ok = count_fail = count_review = 0
-last_dir = ""
-
-for i, path in enumerate(files, 1):
-    progress(i, count_total)
-    hdr = os.path.dirname(path)
-    if last_dir and hdr != last_dir and is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-    last_dir = hdr
-
-    try:
-        rc = mp3_dedup(path)
-    except Exception as e:
-        import traceback
-        log_error(f"UNEXPECTED ERROR: {e}\n{traceback.format_exc()}")
-        rc = 4
-
-    if rc in (0, 1):
-        count_ok += 1
-        append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-    elif rc == 2:
-        count_review += 1
-        append(FAILS_LOG, f"REVIEW [{i}/{count_total}] :: {path} "
-                          "(duplicate frames detected but could not be removed safely)")
-    else:
-        count_fail += 1
-        append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path} "
-                          "(dedup engine error - see step02c-errors.log)")
-    append(RUN_LOG, "processed")
-
-if is_tty:
-    sys.stderr.write("\n")
-
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"STEP02C_MP3_OK={count_ok}\n")
-    f.write(f"STEP02C_MP3_FAIL={count_fail}\n")
-    f.write(f"STEP02C_MP3_REVIEW={count_review}\n")
-    f.write("STATUS=OK\n")
-
-print()
-print("----------------------------------------")
-print(f"MP3 : {count_ok} OK  {count_review} REVIEW  {count_fail} FAIL")
-print("----------------------------------------")
-print("Step 2C.3 - MP3 Auto-Fix")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "MP3 : $count_ok OK  $count_review REVIEW  $count_fail FAIL"
+echo "----------------------------------------"
+echo "Step 2C.3 - MP3 Auto-Fix"
+echo "----------------------------------------"
 
 ```
---- Script Step 2C.3 End ---
+--- Bash Script Step 2C.3 End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -1637,203 +1565,198 @@ print("----------------------------------------")
 
 The native tools for these containers (`AtomicParsley`, `wvtag`) do not support safe auto-fixing, so Step 2C.4 detects confirmed duplicate metadata entries and flags the affected files for manual review. Files are never modified by this sub-step and the audio stream is never re-encoded.
 
---- Script Step 2C.4 Start ---
-```python
+--- Bash Script Step 2C.4 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2C.4 — M4A/MP4 & WavPack Review Flag
 # ------------------------------------------------------------
-import os
-import shutil
-import subprocess
-import sys
-import time
-from collections import Counter
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02c"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02c"
+mkdir -p "$LOG_ROOT"
 
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
-WORK_DIR = os.path.join(LOG_ROOT, "step02c-work")
-os.makedirs(WORK_DIR, exist_ok=True)
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
+WORK_DIR="$LOG_ROOT/step02c-work"
+mkdir -p "$WORK_DIR"
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+# First pass: count review-capable candidates for progress reporting
+count_total=0
+while IFS= read -r -d '' file; do
+    fname="$(basename "$file")"
+    ext_lc="$(printf '%s' "${fname##*.}" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lc" in
+        m4a|mp4|wv) count_total=$((count_total + 1)) ;;
+    esac
+done < "$CANDIDATE_LIST"
 
+if [ "$count_total" -eq 0 ]; then
+    echo "STEP02C_M4A_WV_CLEAN=0" >> "$SUMMARY_LOG"
+    echo "STEP02C_M4A_WV_REVIEW=0" >> "$SUMMARY_LOG"
+    echo "STEP02C_M4A_WV_FAIL=0" >> "$SUMMARY_LOG"
+    echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-def log_error(msg):
-    with open(ERRORS_LOG, "a") as f:
-        f.write(msg + "\n")
+    echo
+    echo "----------------------------------------"
+    echo "M4A/MP4/WV : 0 files to review"
+    echo "----------------------------------------"
+    echo "Step 2C.4 - M4A/MP4 & WavPack Review Flag"
+    echo "----------------------------------------"
+    exit 0
+fi
 
+needs_atomic=0
+needs_wv=0
+while IFS= read -r -d '' file; do
+    fname="$(basename "$file")"
+    ext_lc="$(printf '%s' "${fname##*.}" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lc" in
+        m4a|mp4) needs_atomic=1 ;;
+        wv) needs_wv=1 ;;
+    esac
+done < "$CANDIDATE_LIST"
 
-def run(cmd):
-    err_sink = open(ERRORS_LOG, "a")
-    try:
-        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=err_sink, text=True,
-                           check=False)
-    finally:
-        err_sink.close()
-    return r.returncode, r.stdout
+if [ "$needs_atomic" -eq 1 ] && ! command -v AtomicParsley >/dev/null 2>&1; then
+    echo "ERROR: AtomicParsley is missing but M4A/MP4 files were found." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install AtomicParsley and re-run Step 2C.4." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.4 - M4A/MP4 & WavPack Review Flag"
+    echo "----------------------------------------"
+    exit 1
+fi
 
+if [ "$needs_wv" -eq 1 ] && ! command -v wvtag >/dev/null 2>&1; then
+    echo "ERROR: wvtag is missing but WavPack files were found." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install wavpack and re-run Step 2C.4." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.4 - M4A/MP4 & WavPack Review Flag"
+    echo "----------------------------------------"
+    exit 1
+fi
 
-def which(name):
-    return shutil.which(name) is not None
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
+count_clean=0
+count_review=0
+count_fail=0
+i=0
+last_dir=""
 
-def keep_open_on_error(code):
-    if code != 0:
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
+while IFS= read -r -d '' file; do
+    fname="$(basename "$file")"
+    ext_lc="$(printf '%s' "${fname##*.}" | tr '[:upper:]' '[:lower:]')"
 
+    case "$ext_lc" in
+        m4a|mp4)
+            i=$((i + 1))
+    progress "$i" "$count_total"
+    # Album header on folder change (stderr only; counter resumes below)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
-with open(CANDIDATE_LIST, "rb") as f:
-    candidates = [p.decode("utf-8", "surrogateescape") for p in f.read().split(b"\0") if p]
-ext = lambda p: os.path.splitext(p)[1].lower()
-files = [p for p in candidates if ext(p) in (".m4a", ".mp4", ".wv")]
-count_total = len(files)
+            atoms=$(AtomicParsley "$file" -t 2>>"$ERRORS_LOG")
+            rc=$?
 
-if count_total == 0:
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STEP02C_M4A_WV_CLEAN=0\nSTEP02C_M4A_WV_REVIEW=0\n"
-                "STEP02C_M4A_WV_FAIL=0\nSTATUS=OK\n")
-    print()
-    print("----------------------------------------")
-    print("M4A/MP4/WV : 0 files to review")
-    print("----------------------------------------")
-    print("Step 2C.4 - M4A/MP4 & WavPack Review Flag")
-    print("----------------------------------------")
-    sys.exit(0)
+            if [ $rc -ne 0 ]; then
+                count_fail=$((count_fail + 1))
+                echo "FAIL [$i/$count_total] :: $file (AtomicParsley could not read metadata)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+                continue
+            fi
 
-if any(ext(p) in (".m4a", ".mp4") for p in files) and not which("AtomicParsley"):
-    msg = "ERROR: AtomicParsley is missing but M4A/MP4 files were found.\n" \
-          "       Install AtomicParsley and re-run Step 2C.4."
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.4 - M4A/MP4 & WavPack Review Flag")
-    print("----------------------------------------")
-    keep_open_on_error(1)
+            if [ -z "$atoms" ]; then
+                count_clean=$((count_clean + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+                continue
+            fi
 
-if any(ext(p) == ".wv" for p in files) and not which("wvtag"):
-    msg = "ERROR: wvtag is missing but WavPack files were found.\n" \
-          "       Install wavpack and re-run Step 2C.4."
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.4 - M4A/MP4 & WavPack Review Flag")
-    print("----------------------------------------")
-    keep_open_on_error(1)
+            dup=$(printf '%s\n' "$atoms" | sed 's/[[:space:]]*$//' | sort | uniq -d)
+            if [ -n "$dup" ]; then
+                count_review=$((count_review + 1))
+                echo "REVIEW [$i/$count_total] :: $file (duplicate metadata atoms detected)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            else
+                count_clean=$((count_clean + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+            fi
+            ;;
+        wv)
+            i=$((i + 1))
+    progress "$i" "$count_total"
+    # Album header on folder change (stderr only; counter resumes below)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+            wvtag -l "$file" > "$WORK_DIR/wvtag.$i" 2>>"$ERRORS_LOG"
+            rc=$?
 
+            if [ $rc -ne 0 ]; then
+                count_review=$((count_review + 1))
+                echo "REVIEW [$i/$count_total] :: $file (wvtag could not parse the tag block)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            else
+                dup=$(sed 's/[[:space:]]*$//' "$WORK_DIR/wvtag.$i" | sort | uniq -d)
+                if [ -n "$dup" ]; then
+                    count_review=$((count_review + 1))
+                    echo "REVIEW [$i/$count_total] :: $file (duplicate tag items detected)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+                else
+                    count_clean=$((count_clean + 1))
+                    echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+                fi
+            fi
+            ;;
+    esac
+done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
+rm -rf "$WORK_DIR"
 
+echo "STEP02C_M4A_WV_CLEAN=$count_clean" >> "$SUMMARY_LOG"
+echo "STEP02C_M4A_WV_REVIEW=$count_review" >> "$SUMMARY_LOG"
+echo "STEP02C_M4A_WV_FAIL=$count_fail" >> "$SUMMARY_LOG"
+echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-def has_duplicates(text):
-    """True if any (trailing-space-stripped) line repeats."""
-    lines = [l.rstrip() for l in text.splitlines()]
-    return any(n > 1 for n in Counter(lines).values())
-
-
-count_clean = count_review = count_fail = 0
-last_dir = ""
-
-try:
-    for i, path in enumerate(files, 1):
-        progress(i, count_total)
-        hdr = os.path.dirname(path)
-        if last_dir and hdr != last_dir and is_tty:
-            sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-        last_dir = hdr
-
-        kind = ext(path)
-
-        if kind in (".m4a", ".mp4"):
-            rc, atoms = run(["AtomicParsley", path, "-t"])
-            if rc != 0:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path} "
-                                  "(AtomicParsley could not read metadata)")
-            elif not atoms.strip():
-                count_clean += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-            elif has_duplicates(atoms):
-                count_review += 1
-                append(FAILS_LOG, f"REVIEW [{i}/{count_total}] :: {path} "
-                                  "(duplicate metadata atoms detected)")
-            else:
-                count_clean += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-            append(RUN_LOG, "processed")
-            continue
-
-        if kind == ".wv":
-            rc, out = run(["wvtag", "-l", path])
-            if rc != 0:
-                count_review += 1
-                append(FAILS_LOG, f"REVIEW [{i}/{count_total}] :: {path} "
-                                  "(wvtag could not parse the tag block)")
-            else:
-                lines = [l.rstrip() for l in out.splitlines()]
-                if any(n > 1 for n in Counter(lines).values()):
-                    count_review += 1
-                    append(FAILS_LOG, f"REVIEW [{i}/{count_total}] :: {path} "
-                                      "(duplicate tag items detected)")
-                else:
-                    count_clean += 1
-                    append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-            append(RUN_LOG, "processed")
-finally:
-    if is_tty:
-        sys.stderr.write("\n")
-    shutil.rmtree(WORK_DIR, ignore_errors=True)
-
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"STEP02C_M4A_WV_CLEAN={count_clean}\n")
-    f.write(f"STEP02C_M4A_WV_REVIEW={count_review}\n")
-    f.write(f"STEP02C_M4A_WV_FAIL={count_fail}\n")
-    f.write("STATUS=OK\n")
-
-print()
-print("----------------------------------------")
-print(f"M4A/MP4/WV : {count_clean} OK  {count_review} REVIEW  {count_fail} FAIL")
-print("----------------------------------------")
-print("Step 2C.4 - M4A/MP4 & WavPack Review Flag")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "M4A/MP4/WV : $count_clean OK  $count_review REVIEW  $count_fail FAIL"
+echo "----------------------------------------"
+echo "Step 2C.4 - M4A/MP4 & WavPack Review Flag"
+echo "----------------------------------------"
 
 ```
---- Script Step 2C.4 End ---
+--- Bash Script Step 2C.4 End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -1841,263 +1764,234 @@ print("----------------------------------------")
 
 OGG Vorbis and Opus share the Vorbis comment model, so duplicates are resolved the same way as FLAC: export every comment, drop repeats that share the same key (case-insensitive) and the same value, then re-import the deduplicated set with the format's native writer. Audio streams are never re-encoded. Every modified file is verified with an `ffmpeg` decode-to-null check.
 
---- Script Step 2C.5 Start ---
-```python
+--- Bash Script Step 2C.5 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
-# Step 2C.5 — OGG & Opus Auto-Fix (Vorbis Comment Deduplication)
+# Step 2C.5 — OGG & Opus Auto-Fix
 # ------------------------------------------------------------
-import os
-import shutil
-import subprocess
-import sys
-import time
-from collections import Counter
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02c"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02c"
+mkdir -p "$LOG_ROOT"
 
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
-WORK_DIR = os.path.join(LOG_ROOT, "step02c-work")
-os.makedirs(WORK_DIR, exist_ok=True)
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
+WORK_DIR="$LOG_ROOT/step02c-work"
+mkdir -p "$WORK_DIR"
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+# First pass: count OGG/Opus candidates for progress reporting
+count_total=0
+while IFS= read -r -d '' file; do
+    fname="$(basename "$file")"
+    ext_lc="$(printf '%s' "${fname##*.}" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lc" in
+        ogg|opus) count_total=$((count_total + 1)) ;;
+    esac
+done < "$CANDIDATE_LIST"
 
+if [ "$count_total" -eq 0 ]; then
+    echo "STEP02C_VORBIS_OK=0" >> "$SUMMARY_LOG"
+    echo "STEP02C_VORBIS_FAIL=0" >> "$SUMMARY_LOG"
+    echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-def run(cmd, stdin=None):
-    """Run a command; append stderr to ERRORS_LOG; return (rc, stdout bytes)."""
-    err_sink = open(ERRORS_LOG, "a")
-    try:
-        r = subprocess.run(cmd, stdin=stdin, stdout=subprocess.PIPE,
-                           stderr=err_sink, check=False)
-    finally:
-        err_sink.close()
-    return r.returncode, r.stdout
+    echo
+    echo "----------------------------------------"
+    echo "OGG/OPUS : 0 files to process"
+    echo "----------------------------------------"
+    echo "Step 2C.5 - OGG & Opus Auto-Fix"
+    echo "----------------------------------------"
+    exit 0
+fi
 
+needs_vorbis=0
+needs_opus=0
+while IFS= read -r -d '' file; do
+    fname="$(basename "$file")"
+    ext_lc="$(printf '%s' "${fname##*.}" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lc" in
+        ogg) needs_vorbis=1 ;;
+        opus) needs_opus=1 ;;
+    esac
+done < "$CANDIDATE_LIST"
 
-def which(name):
-    return shutil.which(name) is not None
+if [ "$needs_vorbis" -eq 1 ] && ! command -v vorbiscomment >/dev/null 2>&1; then
+    echo "ERROR: vorbiscomment is missing but OGG files were found." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install vorbis-tools and re-run Step 2C.5." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.5 - OGG & Opus Auto-Fix"
+    echo "----------------------------------------"
+    exit 1
+fi
 
+if [ "$needs_opus" -eq 1 ] && ! command -v opustags >/dev/null 2>&1; then
+    echo "ERROR: opustags is missing but Opus files were found." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install opustags and re-run Step 2C.5." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.5 - OGG & Opus Auto-Fix"
+    echo "----------------------------------------"
+    exit 1
+fi
 
-def keep_open_on_error(code):
-    if code != 0:
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ERROR: ffmpeg is missing but is used to verify OGG/Opus rewrites." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "       Install ffmpeg and re-run Step 2C.5." | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2C.5 - OGG & Opus Auto-Fix"
+    echo "----------------------------------------"
+    exit 1
+fi
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
-def dedup_lines(lines):
-    """Drop repeats that share the same key (case-insensitive) and value."""
-    seen, out = set(), []
-    for line in lines:
-        if "=" in line:
-            key, val = line.split("=", 1)
-            ident = (key.lower(), val)
-        else:
-            ident = line.lower()
-        if ident not in seen:
-            seen.add(ident)
-            out.append(line)
-    return out
+count_ok=0
+count_fail=0
+i=0
+last_dir=""
 
+while IFS= read -r -d '' file; do
+    fname="$(basename "$file")"
+    ext_lc="$(printf '%s' "${fname##*.}" | tr '[:upper:]' '[:lower:]')"
+    case "$ext_lc" in
+        ogg|opus) ;;
+        *) continue ;;
+    esac
+    i=$((i + 1))
+    progress "$i" "$count_total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
-def ffmpeg_decodes(path):
-    r = subprocess.run(
-        ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-f", "null", "-"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    return r.returncode == 0
+    tmp_tags="$WORK_DIR/tags.$i"
+    : > "$tmp_tags"
 
-
-with open(CANDIDATE_LIST, "rb") as f:
-    candidates = [p.decode("utf-8", "surrogateescape") for p in f.read().split(b"\0") if p]
-ext = lambda p: os.path.splitext(p)[1].lower()
-files = [p for p in candidates if ext(p) in (".ogg", ".opus")]
-count_total = len(files)
-
-if count_total == 0:
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STEP02C_VORBIS_OK=0\nSTEP02C_VORBIS_FAIL=0\nSTATUS=OK\n")
-    print()
-    print("----------------------------------------")
-    print("OGG/OPUS : 0 files to process")
-    print("----------------------------------------")
-    print("Step 2C.5 - OGG & Opus Auto-Fix")
-    print("----------------------------------------")
-    sys.exit(0)
-
-if any(ext(p) == ".ogg" for p in files) and not which("vorbiscomment"):
-    msg = ("ERROR: vorbiscomment is missing but OGG files were found.\n"
-           "       Install vorbis-tools and re-run Step 2C.5.")
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.5 - OGG & Opus Auto-Fix")
-    print("----------------------------------------")
-    keep_open_on_error(1)
-
-if any(ext(p) == ".opus" for p in files) and not which("opustags"):
-    msg = ("ERROR: opustags is missing but Opus files were found.\n"
-           "       Install opustags and re-run Step 2C.5.")
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.5 - OGG & Opus Auto-Fix")
-    print("----------------------------------------")
-    keep_open_on_error(1)
-
-if not which("ffmpeg"):
-    msg = ("ERROR: ffmpeg is missing but is used to verify OGG/Opus rewrites.\n"
-           "       Install ffmpeg and re-run Step 2C.5.")
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2C.5 - OGG & Opus Auto-Fix")
-    print("----------------------------------------")
-    keep_open_on_error(1)
-
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
-
-
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-count_ok = count_fail = 0
-last_dir = ""
-
-try:
-    for i, path in enumerate(files, 1):
-        progress(i, count_total)
-        hdr = os.path.dirname(path)
-        if last_dir and hdr != last_dir and is_tty:
-            sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-        last_dir = hdr
-
-        kind = ext(path)
-        result = "fail"
-        if kind == ".ogg":
-            # Export all comments; fail hard if the tool cannot read the file
-            rc, raw = run(["vorbiscomment", "-l", path])
-            if rc != 0:
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path} "
-                                  "(vorbiscomment could not read the file)")
-                append(RUN_LOG, "processed")
-                count_fail += 1
+    case "$ext_lc" in
+        ogg)
+            if ! vorbiscomment -l "$file" > "$tmp_tags" 2>>"$ERRORS_LOG"; then
+                if [ ! -s "$tmp_tags" ]; then
+                    count_fail=$((count_fail + 1))
+                    echo "FAIL [$i/$count_total] :: $file (vorbiscomment could not read the file)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+                else
+                    count_fail=$((count_fail + 1))
+                    echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+                fi
+                rm -f "$tmp_tags"
                 continue
-            lines = [l for l in raw.decode("utf-8", "replace").splitlines()
-                     if "=" in l]
-            if not lines:
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-                append(RUN_LOG, "processed")
+            fi
+            grep '=' "$tmp_tags" > "$tmp_tags.filtered"
+            if [ ! -s "$tmp_tags.filtered" ]; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+                rm -f "$tmp_tags" "$tmp_tags.filtered"
                 continue
-            dedup = dedup_lines(lines)
-            if dedup == lines:
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-                append(RUN_LOG, "processed")
+            fi
+            awk -F= '{ v = substr($0, index($0, "=") + 1); k = tolower($1); if (!seen[k "\034" v]++) print }' \
+                "$tmp_tags.filtered" > "$tmp_tags.dedup"
+            if cmp -s "$tmp_tags.filtered" "$tmp_tags.dedup"; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+                rm -f "$tmp_tags" "$tmp_tags.filtered" "$tmp_tags.dedup"
                 continue
-            dedup_text = "\n".join(dedup) + "\n"
-            r = subprocess.run(["vorbiscomment", "-w", path],
-                               input=dedup_text.encode(),
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, check=False)
-            if r.returncode == 0 and ffmpeg_decodes(path):
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-            else:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path}")
-            append(RUN_LOG, "processed")
-            continue
+            fi
+            if vorbiscomment -w "$file" < "$tmp_tags.dedup" 2>>"$ERRORS_LOG" && \
+               ffmpeg -nostdin -v error -i "$file" -f null - >/dev/null 2>&1; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+            else
+                count_fail=$((count_fail + 1))
+                echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            fi
+            rm -f "$tmp_tags" "$tmp_tags.filtered" "$tmp_tags.dedup"
+            ;;
+        opus)
+            if ! opustags -l "$file" > "$tmp_tags" 2>>"$ERRORS_LOG"; then
+                if [ ! -s "$tmp_tags" ]; then
+                    count_fail=$((count_fail + 1))
+                    echo "FAIL [$i/$count_total] :: $file (opustags could not read the file)" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+                else
+                    count_fail=$((count_fail + 1))
+                    echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+                fi
+                rm -f "$tmp_tags"
+                continue
+            fi
+            grep '=' "$tmp_tags" > "$tmp_tags.filtered"
+            if [ ! -s "$tmp_tags.filtered" ]; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+                rm -f "$tmp_tags" "$tmp_tags.filtered"
+                continue
+            fi
+            awk -F= '{ v = substr($0, index($0, "=") + 1); k = tolower($1); if (!seen[k "\034" v]++) print }' \
+                "$tmp_tags.filtered" > "$tmp_tags.dedup"
+            if cmp -s "$tmp_tags.filtered" "$tmp_tags.dedup"; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+                rm -f "$tmp_tags" "$tmp_tags.filtered" "$tmp_tags.dedup"
+                continue
+            fi
+            if opustags -s "$tmp_tags.dedup" -w "$file" 2>>"$ERRORS_LOG" && \
+               ffmpeg -nostdin -v error -i "$file" -f null - >/dev/null 2>&1; then
+                count_ok=$((count_ok + 1))
+                echo "OK   [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+            else
+                count_fail=$((count_fail + 1))
+                echo "FAIL [$i/$count_total] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            fi
+            rm -f "$tmp_tags" "$tmp_tags.filtered" "$tmp_tags.dedup"
+            ;;
+    esac
+done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
-        if kind == ".opus":
-            # opustags 1.9.0: bare `opustags FILE` prints the comment list
-            # (there is no -l option; the guide's bash version predates 1.9)
-            rc, raw = run(["opustags", path])
-            if rc != 0:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path} "
-                                  "(opustags could not read the file)")
-                append(RUN_LOG, "processed")
-                continue
-            lines = [l for l in raw.decode("utf-8", "replace").splitlines()
-                     if "=" in l]
-            if not lines:
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-                append(RUN_LOG, "processed")
-                continue
-            dedup = dedup_lines(lines)
-            if dedup == lines:
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-                append(RUN_LOG, "processed")
-                continue
-            dedup_text = "\n".join(dedup) + "\n"
-            # -S imports comments from standard input; -i rewrites in place
-            r = subprocess.run(["opustags", "-S", "-i", path],
-                               input=dedup_text.encode(),
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, check=False)
-            if r.returncode == 0 and ffmpeg_decodes(path):
-                count_ok += 1
-                append(OKS_LOG, f"OK   [{i}/{count_total}] :: {path}")
-            else:
-                count_fail += 1
-                append(FAILS_LOG, f"FAIL [{i}/{count_total}] :: {path}")
-            append(RUN_LOG, "processed")
-            continue
-finally:
-    if is_tty:
-        sys.stderr.write("\n")
-    shutil.rmtree(WORK_DIR, ignore_errors=True)
+rm -rf "$WORK_DIR"
 
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"STEP02C_VORBIS_OK={count_ok}\n")
-    f.write(f"STEP02C_VORBIS_FAIL={count_fail}\n")
-    f.write("STATUS=OK\n")
+echo "STEP02C_VORBIS_OK=$count_ok" >> "$SUMMARY_LOG"
+echo "STEP02C_VORBIS_FAIL=$count_fail" >> "$SUMMARY_LOG"
+echo "STATUS=OK" >> "$SUMMARY_LOG"
 
-print()
-print("----------------------------------------")
-print(f"OGG/OPUS : {count_ok} OK  {count_fail} FAIL")
-print("----------------------------------------")
-print("Step 2C.5 - OGG & Opus Auto-Fix")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "OGG/OPUS : $count_ok OK  $count_fail FAIL"
+echo "----------------------------------------"
+echo "Step 2C.5 - OGG & Opus Auto-Fix"
+echo "----------------------------------------"
 
 ```
---- Script Step 2C.5 End ---
+--- Bash Script Step 2C.5 End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -2105,114 +1999,86 @@ print("----------------------------------------")
 
 Aggregates the Step 2C sub-step results into `step02c-summary.log` and prints the final Step 2C status. Step 2E reads this summary file.
 
---- Script Step 2C.6 Start ---
-```python
+--- Bash Script Step 2C.6 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2C.6 — Summary
 # ------------------------------------------------------------
-import os
-import re
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02c"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02c"
+mkdir -p "$LOG_ROOT"
 
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-def read(path):
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
+ok_count=$(grep -a '^OK' "$OKS_LOG" 2>/dev/null | wc -l)
+fail_count=$(grep -a '^FAIL' "$FAILS_LOG" 2>/dev/null | wc -l)
+review_count=$(grep -a '^REVIEW' "$FAILS_LOG" 2>/dev/null | wc -l)
+total=$(grep -a '^TOTAL_CANDIDATES=' "$SUMMARY_LOG" 2>/dev/null | cut -d= -f2)
 
+# Per-format counters, as written by Steps 2C.2 - 2C.5 (last value wins,
+# since repeat runs append). Any missing key reads as 0.
+kv() { grep -a "^$1=" "$SUMMARY_LOG" 2>/dev/null | tail -1 | cut -d= -f2; }
+flac_ok=$(kv STEP02C_FLAC_OK);        flac_fail=$(kv STEP02C_FLAC_FAIL)
+mp3_ok=$(kv STEP02C_MP3_OK);          mp3_fail=$(kv STEP02C_MP3_FAIL);   mp3_review=$(kv STEP02C_MP3_REVIEW)
+m4a_clean=$(kv STEP02C_M4A_WV_CLEAN); m4a_fail=$(kv STEP02C_M4A_WV_FAIL); m4a_review=$(kv STEP02C_M4A_WV_REVIEW)
+ogg_ok=$(kv STEP02C_VORBIS_OK);       ogg_fail=$(kv STEP02C_VORBIS_FAIL)
+: "${total:-0}" "${flac_ok:=0}" "${flac_fail:=0}" "${mp3_ok:=0}" "${mp3_fail:=0}" "${mp3_review:=0}"
+: "${m4a_clean:=0}" "${m4a_fail:=0}" "${m4a_review:=0}" "${ogg_ok:=0}" "${ogg_fail:=0}"
 
-def count_prefix(text, prefix):
-    return sum(1 for l in text.splitlines() if l.startswith(prefix))
-
-
-def kv(text, key):
-    """Per-format counter: last value wins, since repeat runs append."""
-    vals = re.findall(rf"^{key}=(.*)$", text, flags=re.MULTILINE)
-    return vals[-1] if vals else "0"
-
-
-oks = read(OKS_LOG)
-fails = read(FAILS_LOG)
-summary = read(SUMMARY_LOG)
-
-ok_count = sum(1 for l in oks.splitlines() if l.startswith("OK"))
-fail_count = sum(1 for l in fails.splitlines() if l.startswith("FAIL"))
-review_count = sum(1 for l in fails.splitlines() if l.startswith("REVIEW"))
-
-total = kv(summary, "TOTAL_CANDIDATES")
-flac_ok = kv(summary, "STEP02C_FLAC_OK")
-flac_fail = kv(summary, "STEP02C_FLAC_FAIL")
-mp3_ok = kv(summary, "STEP02C_MP3_OK")
-mp3_fail = kv(summary, "STEP02C_MP3_FAIL")
-mp3_review = kv(summary, "STEP02C_MP3_REVIEW")
-m4a_clean = kv(summary, "STEP02C_M4A_WV_CLEAN")
-m4a_fail = kv(summary, "STEP02C_M4A_WV_FAIL")
-m4a_review = kv(summary, "STEP02C_M4A_WV_REVIEW")
-ogg_ok = kv(summary, "STEP02C_VORBIS_OK")
-ogg_fail = kv(summary, "STEP02C_VORBIS_FAIL")
-
-rows = [
-    ("FLAC", flac_ok, flac_fail, "-"),
-    ("MP3", mp3_ok, mp3_fail, mp3_review),
-    ("M4A/MP4/WV", m4a_clean, m4a_fail, m4a_review),
-    ("OGG/OPUS", ogg_ok, ogg_fail, "-"),
-]
-
-report = "\n".join(
-    [f"Step 2C Summary",
-     f"==============",
-     "",
-     f"Step       : step02c",
-     f"Run Date   : {time.strftime('%c')}",
-     "",
-     f"Processed  : {total}",
-     f"OK         : {ok_count}",
-     f"FAIL       : {fail_count}",
-     f"REVIEW     : {review_count}",
-     "",
-     f"Per-format breakdown (OK/clean, FAIL, REVIEW):",
-     *[f"  {name:<12} {a:>10} {b:>6} {c:>7}" for name, a, b, c in rows],
- ]) + "\n"
-
-with open(SUMMARY_LOG, "w") as f:
-    f.write(report)
+{
+echo "Step 2C Summary"
+echo "=============="
+echo
+echo "Step       : step02c"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "OK         : $ok_count"
+echo "FAIL       : $fail_count"
+echo "REVIEW     : $review_count"
+echo
+echo "Per-format breakdown (OK/clean, FAIL, REVIEW):"
+printf "  %-12s %10s %6s %7s\n" "FLAC" "$flac_ok" "$flac_fail" "-"
+printf "  %-12s %10s %6s %7s\n" "MP3" "$mp3_ok" "$mp3_fail" "$mp3_review"
+printf "  %-12s %10s %6s %7s\n" "M4A/MP4/WV" "$m4a_clean" "$m4a_fail" "$m4a_review"
+printf "  %-12s %10s %6s %7s\n" "OGG/OPUS" "$ogg_ok" "$ogg_fail" "-"
+} > "$SUMMARY_LOG"
 
 # Terminal output: the summary review comes FIRST; the footer is
 # strictly the final output before the shell prompt returns.
-print()
-print("----------------------------------------")
-print("Step 2C Summary Review")
-print("----------------------------------------")
-print(f"Processed  : {total}")
-print(f"OK         : {ok_count}")
-print(f"FAIL       : {fail_count}")
-print(f"REVIEW     : {review_count}")
-print()
-print("Format        OK/clean  FAIL  REVIEW")
-for name, a, b, c in rows:
-    print(f"  {name:<12} {a:>10} {b:>6} {c:>7}")
-print()
-print(f"Summary written to : {SUMMARY_LOG}")
-print()
-print("----------------------------------------")
-print("Step 2C.6 - Summary")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Step 2C Summary Review"
+echo "----------------------------------------"
+echo "Processed  : $total"
+echo "OK         : $ok_count"
+echo "FAIL       : $fail_count"
+echo "REVIEW     : $review_count"
+echo
+echo "Format        OK/clean  FAIL  REVIEW"
+printf "  %-12s %10s %6s %7s\n" "FLAC" "$flac_ok" "$flac_fail" "-"
+printf "  %-12s %10s %6s %7s\n" "MP3" "$mp3_ok" "$mp3_fail" "$mp3_review"
+printf "  %-12s %10s %6s %7s\n" "M4A/MP4/WV" "$m4a_clean" "$m4a_fail" "$m4a_review"
+printf "  %-12s %10s %6s %7s\n" "OGG/OPUS" "$ogg_ok" "$ogg_fail" "-"
+echo
+echo "Summary written to : $SUMMARY_LOG"
+echo
+echo "----------------------------------------"
+echo "Step 2C.6 - Summary"
+echo "----------------------------------------"
 
 ```
---- Script Step 2C.6 End ---
+--- Bash Script Step 2C.6 End ---
 
 \---------------------------------------------------------------------------------------
 
