@@ -6,9 +6,10 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v34** — supersedes v33. Converts Step 2A and 2B
-from bash to extensionless Python, completing the whole Step 2 suite
-in Python. See the v34 entry below.
+**Current version: v38** — supersedes v37. Converts Steps 1, 1B, 2A,
+2B, 2D, 2E and 3 from bash to extensionless Python (completing Step 1,
+Step 1B and the full Step 2 suite); fixes the Opus tool invocations
+for opustags 1.9.x (v33). See the v33-v38 entries below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -349,3 +350,35 @@ of changes from v30:
 * **Versioned copy** — the prior guide (v36) was archived as
   `linux-audio-moode-cleanup-guide-v36.md` before editing, per the
   update rule.
+
+---
+
+## v38 Change Log (2026-09-20)
+
+* **Step 3 converted to Python (no-.sh policy).** `step3-rebuild`
+  replaces the bash container-rebuild script. Preserved behaviors:
+  - ffmpeg stream-copy rebuild to `<name>.fixed.<ext>` with
+    `-nostdin -nostats -loglevel error -map_metadata 0 -c copy`.
+  - MJPEG "unable to decode APP fields" / "Invalid data found"
+    artwork warnings diverted to `step03-warnings.log` instead of
+    failing a valid rebuild.
+  - The two-stage duration sanity check: header compare within 2%,
+    and on disagreement a full-decode truth comparison (0.5s tolerance)
+    with the junk-tail (>45s) note — the `decode_real` helper is
+    replicated in Python from the same ffmpeg time= parsing.
+  - `.prerepair` backup created once before overwriting (Step 7 removes
+    them later); rebuild verified before replace; NUL-list override
+    argument to re-process only specific files.
+* **Fixture tests** (5 files: FLAC/MP3/M4A/WAV + a truncated FLAC):
+  4 rebuilt OK with `.prerepair` backups created, corrupt file FAILed
+  and left untouched; decoded-audio MD5 of rebuilt vs prerepair
+  originals is bit-identical for FLAC/MP3/M4A — confirming no re-encode.
+  Fixture testing also caught and fixed an unlink crash when ffmpeg
+  fails so early it never creates the `.fixed` output.
+* **Versioned copy** — the prior guide (v37) was archived as
+  `linux-audio-moode-cleanup-guide-v37.md` before editing, per the
+  update rule.
+* **Housekeeping (v35-v38):** the "Current version" header line had
+  silently stopped advancing during the v35-v37 edits (the replace
+  targeted stale text); it is now corrected to v38. The per-version
+  entries for v35-v37 were present and unaffected.
