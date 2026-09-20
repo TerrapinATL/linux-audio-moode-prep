@@ -1,11 +1,10 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v32** — Current version; supersedes v31. Adds optional
-procedure 15d "Ignore-Content Certification": integrity-tests every
-audio file inside every `Ignore` folder and writes a self-contained
-`Ignore.sha512sums.txt` per folder, closing the last unprotected corner
-of the library (files hidden from moOde via `.mpdignore`).
-(15d added 2026-09-17.)
+**Version: v38** — Current version; supersedes v37. Step 1, Step 1B,
+the complete Step 2 suite (2A, 2B, 2C.1-2C.6, 2D, 2E) and Step 3 are
+now extensionless Python scripts (no-.sh policy); Opus tool
+invocations corrected for opustags 1.9.x.
+(Conversions 2026-09-20.)
 
 Change log and version history are maintained separately:
 [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
