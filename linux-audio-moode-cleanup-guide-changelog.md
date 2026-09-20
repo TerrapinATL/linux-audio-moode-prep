@@ -6,10 +6,8 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v38** — supersedes v37. Converts Steps 1, 1B, 2A,
-2B, 2D, 2E and 3 from bash to extensionless Python (completing Step 1,
-Step 1B and the full Step 2 suite); fixes the Opus tool invocations
-for opustags 1.9.x (v33). See the v33-v38 entries below.
+**Current version: v39** — supersedes v38. Converts Step 4 (post-rebuild
+integrity verification) to extensionless Python. See the v39 entry below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -382,3 +380,22 @@ of changes from v30:
   silently stopped advancing during the v35-v37 edits (the replace
   targeted stale text); it is now corrected to v38. The per-version
   entries for v35-v37 were present and unaffected.
+
+---
+
+## v39 Change Log (2026-09-20)
+
+* **Step 4 converted to Python (no-.sh policy).** `step4-verify` is the
+  post-rebuild repeat of the Step 1 integrity test (read-only):
+  flac -s -t for FLAC, -nostdin ffmpeg null-decode for the rest, the
+  same 12-extension find set and Ignore/prerepair/fixed/reencode
+  exclusions, per-file OK/FAIL lines on screen with blank-line album
+  separators, the LOST_SYNC / END_OF_STREAM error grouping, and the
+  Step 4 summary. No AUTOPURGE and no pre-warm prompt (those belong to
+  Step 1, the workflow entry point). step04-*.log files, same standard.
+* **Fixture test** (post-rebuild library incl. the untouched truncated
+  FLAC): 4 passed / 1 failed, truncation surfaced under END_OF_STREAM,
+  summary correct, exit 0.
+* **Versioned copy** — the prior guide (v38) was archived as
+  `linux-audio-moode-cleanup-guide-v38.md` before editing, per the
+  update rule.
