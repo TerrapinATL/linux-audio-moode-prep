@@ -267,3 +267,30 @@ of changes from v30:
 * **Versioned copy** — the prior guide (v33) was archived as
   `linux-audio-moode-cleanup-guide-v33.md` before editing, per the
   update rule.
+
+---
+
+## v35 Change Log (2026-09-20)
+
+* **Steps 2D and 2E converted to Python (no-.sh policy).** With this
+  change the entire Step 2 suite — 2A File Discovery, 2B Format
+  Assessment, 2C.1-2C.6 Deduplication, 2D Verification, 2E Summary —
+  consists exclusively of extensionless Python scripts.
+  - 2D is `step2d-verify`: FLAC files verified with `flac -t -s`,
+    every other format with the `-nostdin` ffmpeg decode-to-null check
+    (the ffmpeg input-stream-sharing bug the bash version documented
+    is preserved as a comment; subprocess pipes make it moot but the
+    flag is kept). Same five-file logs, stderr progress counter with
+    elapsed/ETA, per-album headers, interactive Y/N log-dump prompts,
+    and the recap footer.
+  - 2E is `step2e-summary`: concatenates the step02a-02d summary logs
+    with `[sub]` headers into `step02e-summary.log`, printing the
+    result to screen; missing summaries are logged as errors, exactly
+    as before.
+* **Fixture tests** (isolated HOME, 6-file library): 2D passed all 6;
+  a deliberately truncated FLAC added to the candidates was flagged
+  FAIL (6 passed / 1 corrupt). 2E aggregated all four sub-summaries
+  into the combined Step 2 report.
+* **Versioned copy** — the prior guide (v34) was archived as
+  `linux-audio-moode-cleanup-guide-v34.md` before editing, per the
+  update rule.

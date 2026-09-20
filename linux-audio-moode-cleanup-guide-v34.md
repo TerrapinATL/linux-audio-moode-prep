@@ -2253,186 +2253,179 @@ Verify the files modified by Step 2C and confirm that the intended cleanup occur
 
 FLAC files are verified with `flac -t`. Every other modified format is verified with an `ffmpeg` decode-to-null stream check. `ffmpeg` is run with `-nostdin` — without it, `ffmpeg` shares the loop's input stream and silently consumes a byte meant for the next file, corrupting the following iteration's path. This surfaced during testing and is the same class of bug already fixed once before in the artwork-normalization scripts.
 
---- Script Step 2D Start ---
-```python
+--- Bash Script Step 2D Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2D — Verification
 # ------------------------------------------------------------
-import os
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02d"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02d"
+mkdir -p "$LOG_ROOT"
 
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-def ask_yn(prompt):
-    if not sys.stdin.isatty():
-        return False
-    try:
-        choice = input(prompt)
-    except EOFError:
-        return False
-    return choice.strip().lower() in ("y", "yes")
-
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
 
 # Software Preflight: fail loudly if a required tool is missing
-for tool in ("flac", "ffmpeg", "metaflac"):
-    if shutil.which(tool) is None:
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in flac ffmpeg metaflac; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
-if not (os.path.isfile(CANDIDATE_LIST) and os.path.getsize(CANDIDATE_LIST) > 0):
-    msg = f"ERROR: candidate list empty or missing :: {CANDIDATE_LIST}"
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    if sys.stdout.isatty() and os.path.getsize(ERRORS_LOG) > 0:
-        print()
-        if ask_yn("Would you like to view the error log? [Y/N]: "):
-            print("----------------------------------------")
-            print("ERROR LOG DUMP:")
-            print("----------------------------------------")
-            with open(ERRORS_LOG) as f:
-                print(f.read())
-    print("Status: FAILED (Run Step 2A first)")
-    print("----------------------------------------")
-    print("Step 2D - Verification")
-    print("----------------------------------------")
-    keep_open_on_error(1)
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
 
-with open(CANDIDATE_LIST, "rb") as f:
-    candidates = [p.decode("utf-8", "surrogateescape") for p in f.read().split(b"\0") if p]
-total_files = len(candidates)
+if [ ! -s "$CANDIDATE_LIST" ]; then
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+    if [ -t 1 ]; then
+        echo
+        read -rp "Would you like to view the error log? [Y/N]: " choice </dev/tty
+        case "$choice" in
+            [yY][eE][sS]|[yY])
+                echo "----------------------------------------"
+                echo "ERROR LOG DUMP:"
+                echo "----------------------------------------"
+                cat "$ERRORS_LOG"
+                ;;
+        esac
+    fi
 
+    echo "Status: FAILED (Run Step 2A first)"
+    echo "----------------------------------------"
+    echo "Step 2D - Verification"
+    echo "----------------------------------------"
+    exit 1
+fi
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
+# Count total candidates upfront for progress reporting
+total_files=$(grep -c $'\0' "$CANDIDATE_LIST" || grep -c '^' "$CANDIDATE_LIST")
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
-print("Notice: Integrity checking in progress.")
-print(f"Total files to process: {total_files}")
-print()
+echo "Notice: Integrity checking in progress."
+echo "Total files to process: $total_files"
+echo
 
-passed_count = corrupt_count = error_count = 0
-last_dir = ""
+passed_count=0
+corrupt_count=0
+error_count=0
+current=0
+last_dir=""
 
-for current, path in enumerate(candidates, 1):
-    progress(current, total_files)
-    hdr = os.path.dirname(path)
-    if last_dir and hdr != last_dir and is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-    last_dir = hdr
+while IFS= read -r -d '' file; do
+    current=$((current + 1))
+    progress "$current" "$total_files"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "$file")"; hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
-    if not os.access(path, os.R_OK):
-        append(RUN_LOG, f"ERROR [{current}/{total_files}] :: {path} (unreadable)")
-        append(ERRORS_LOG, f"ERROR [{current}/{total_files}] :: {path} (unreadable)")
-        error_count += 1
+    if [ ! -r "$file" ]; then
+        echo "ERROR [$current/$total_files] :: $file (unreadable)" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+        error_count=$((error_count + 1))
         continue
+    fi
 
-    ext_lc = os.path.splitext(os.path.basename(path))[1].lower().lstrip(".")
-    if ext_lc == "flac":
-        cmd = ["flac", "-t", "-s", path]
-    else:
-        # -nostdin: without it ffmpeg shares the loop's input stream and
-        # silently consumes bytes meant for the next file
-        cmd = ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-f", "null", "-"]
+    fname=$(basename "$file")
+    ext="${fname##*.}"
+    ext_lc="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
 
-    r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, check=False)
-    if r.returncode == 0:
-        passed_count += 1
-        append(OKS_LOG, f"OK   [{current}/{total_files}] :: {path}")
-    else:
-        corrupt_count += 1
-        append(FAILS_LOG, f"FAIL [{current}/{total_files}] :: {path}")
-    append(RUN_LOG, "processed")
+    if [ "$ext_lc" = flac ]; then
+        verify_cmd=(flac -t -s "$file")
+    else
+        verify_cmd=(ffmpeg -nostdin -v error -i "$file" -f null -)
+    fi
 
-if is_tty:
-    sys.stderr.write("\n")
+    if "${verify_cmd[@]}" >/dev/null 2>&1; then
+        echo "OK   [$current/$total_files] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+        passed_count=$((passed_count + 1))
+    else
+        echo "FAIL [$current/$total_files] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+        corrupt_count=$((corrupt_count + 1))
+    fi
+done < "$CANDIDATE_LIST"
+printf '\n' >&2
 
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"PASSED_FILES={passed_count}\n")
-    f.write(f"CORRUPT_FILES={corrupt_count}\n")
-    f.write(f"ERROR_FILES={error_count}\n")
-    f.write("STATUS=OK\n")
+echo "PASSED_FILES=$passed_count" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "CORRUPT_FILES=$corrupt_count" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "ERROR_FILES=$error_count" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
 
 # Interactive Screen Dump Prompts
-if sys.stdout.isatty() and os.path.getsize(ERRORS_LOG) > 0:
-    print()
-    if ask_yn("ERRORS DETECTED — Would you like to view the error log? [Y/N]: "):
-        print("----------------------------------------")
-        print("ERROR LOG DUMP:")
-        print("----------------------------------------")
-        with open(ERRORS_LOG) as f:
-            print(f.read())
-elif sys.stdout.isatty() and os.path.getsize(FAILS_LOG) > 0:
-    print()
-    if ask_yn("CORRUPT/FAILED FILES DETECTED — Would you like to view the log? [Y/N]: "):
-        print("----------------------------------------")
-        print("CORRUPT FILES LOG DUMP:")
-        print("----------------------------------------")
-        with open(FAILS_LOG) as f:
-            print(f.read())
+if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
+    echo
+    read -rp "ERRORS DETECTED — Would you like to view the error log? [Y/N]: " choice </dev/tty
+    case "$choice" in
+        [yY][eE][sS]|[yY])
+            echo "----------------------------------------"
+            echo "ERROR LOG DUMP:"
+            echo "----------------------------------------"
+            cat "$ERRORS_LOG"
+            ;;
+    esac
+elif [ -t 1 ] && [ -s "$FAILS_LOG" ]; then
+    echo
+    read -rp "CORRUPT/FAILED FILES DETECTED — Would you like to view the log? [Y/N]: " choice </dev/tty
+    case "$choice" in
+        [yY][eE][sS]|[yY])
+            echo "----------------------------------------"
+            echo "CORRUPT FILES LOG DUMP:"
+            echo "----------------------------------------"
+            cat "$FAILS_LOG"
+            ;;
+    esac
+fi
 
 # Footer — Strictly the final output before shell prompt returns
-print()
-print("----------------------------------------")
-print(f"Passed integrity check : {passed_count}")
-print(f"Corrupt/Failed files   : {corrupt_count}")
-print(f"System/Read errors     : {error_count}")
-print("----------------------------------------")
-print("Step 2D - Verification")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Passed integrity check : $passed_count"
+echo "Corrupt/Failed files   : $corrupt_count"
+echo "System/Read errors     : $error_count"
+echo "----------------------------------------"
+echo "Step 2D - Verification"
+echo "----------------------------------------"
 
 ```
---- Script Step 2D End ---
+--- Bash Script Step 2D End ---
 
 \ ---------------------------------------------------------------------------------------
 
@@ -2440,60 +2433,57 @@ print("----------------------------------------")
 
 Produce the final Step 2 results and status.
 
---- Script Step 2E Start ---
-```python
+--- Bash Script Step 2E Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2E — Summary
 # ------------------------------------------------------------
-import os
-import sys
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02e"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02e"
+mkdir -p "$LOG_ROOT"
 
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+for sub in step02a step02b step02c step02d; do
+    src="$LOG_ROOT/${sub}-summary.log"
+    if [ -f "$src" ]; then
+        echo "OK found summary :: $sub" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+        { echo "[$sub]"; cat "$src"; echo; } >> "$SUMMARY_LOG"
+    else
+        echo "ERROR missing summary :: $sub" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    fi
+done
 
+cat "$SUMMARY_LOG"
 
-for sub in ("step02a", "step02b", "step02c", "step02d"):
-    src = os.path.join(LOG_ROOT, f"{sub}-summary.log")
-    if os.path.isfile(src):
-        append(RUN_LOG, f"OK found summary :: {sub}")
-        append(OKS_LOG, f"OK found summary :: {sub}")
-        with open(src) as f, open(SUMMARY_LOG, "a") as out:
-            out.write(f"[{sub}]\n")
-            out.write(f.read())
-            out.write("\n")
-    else:
-        append(RUN_LOG, f"ERROR missing summary :: {sub}")
-        append(ERRORS_LOG, f"ERROR missing summary :: {sub}")
-
-with open(SUMMARY_LOG) as f:
-    print(f.read(), end="")
-
-print()
-print("----------------------------------------")
-print(f"Summary written to : {SUMMARY_LOG}")
-print("----------------------------------------")
-print("Step 2E - Summary")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Summary written to : $SUMMARY_LOG"
+echo "----------------------------------------"
+echo "Step 2E - Summary"
+echo "----------------------------------------"
 
 ```
---- Script Step 2E End ---
+--- Bash Script Step 2E End ---
 
 \ ---------------------------------------------------------------------------------------
 
