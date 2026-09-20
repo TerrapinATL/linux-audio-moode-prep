@@ -6,8 +6,9 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v39** — supersedes v38. Converts Step 4 (post-rebuild
-integrity verification) to extensionless Python. See the v39 entry below.
+**Current version: v40** — supersedes v39. Converts Step 5 (ReplayGain)
+to extensionless Python and applies the suite's documented M4A/MP4
+loudgain workaround to it. See the v40 entry below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -398,4 +399,40 @@ of changes from v30:
   summary correct, exit 0.
 * **Versioned copy** — the prior guide (v38) was archived as
   `linux-audio-moode-cleanup-guide-v38.md` before editing, per the
+  update rule.
+
+---
+
+## v40 Change Log (2026-09-20)
+
+* **Step 5 converted to Python (no-.sh policy).** `step5-replaygain`
+  replaces the bash ReplayGain script. Preserved behaviors:
+  per-album processing in Artist/Album order (case-insensitive sort,
+  version sort within each format group), blank-line break per artist
+  on screen, per-album header line written optimistically to
+  run/oks logs and demoted to FAIL via fixed-string removal when any
+  format group fails, per-format loudgain groups with the moOde flag
+  set (-a -k -s e -L), error details flattened into step05-errors.log,
+  unique-line counting, and the terminal Errors section + footer.
+* **M4A/MP4 segfault workaround applied.** loudgain 0.6.8 segfaults
+  (exit -11) writing album-level tags into MP4/M4A atoms — the same
+  upstream bug documented in Recertification Step 2B and worked around
+  in the Apply ReplayGain Nemo action. The bash Step 5 ran album-mode
+  loudgain on M4A/MP4 groups, so any album containing M4A/MP4 would
+  crash loudgain and be marked FAIL. Step 5 now applies the suite's
+  established workaround for those formats: ffmpeg container sanitize
+  (stream copy, +faststart) followed by track-only gain
+  (loudgain -k -s e -L). FLAC/MP3/OGG/Opus/WV/APE/SPX keep full
+  Album + Track gain.
+* **Fixture tests** (4-format album: FLAC/MP3/M4A/WAV): failure path
+  verified with a corrupt file in the group (album FAILed with error
+  details, OK entry removed from oks log); success path wrote
+  REPLAYGAIN_TRACK_GAIN and REPLAYGAIN_ALBUM_GAIN to all formats,
+  M4A receiving track-only lowercase tags per the workaround; decoded
+  audio MD5 vs .prerepair originals bit-identical for all four — no
+  re-encode. Fixture testing also caught two bugs before commit: the
+  sanitize temp file needed the original extension for ffmpeg's muxer
+  inference, and an unguarded unlink after failed sanitize.
+* **Versioned copy** — the prior guide (v39) was archived as
+  `linux-audio-moode-cleanup-guide-v39.md` before editing, per the
   update rule.

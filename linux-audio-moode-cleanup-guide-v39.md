@@ -1,8 +1,9 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v40** — Current version; supersedes v39. Step 5 (ReplayGain
-reapplication) is now an extensionless Python script, with the M4A/MP4
-loudgain album-mode segfault worked around per Recert Step 2B.
+**Version: v38** — Current version; supersedes v37. Step 1, Step 1B,
+the complete Step 2 suite (2A, 2B, 2C.1-2C.6, 2D, 2E) and Step 3 are
+now extensionless Python scripts (no-.sh policy); Opus tool
+invocations corrected for opustags 1.9.x.
 (Conversions 2026-09-20.)
 
 Change log and version history are maintained separately:
@@ -3097,211 +3098,161 @@ No audio is modified or re-encoded. Calculation is performed at album level to p
 
 \ ---------------------------------------------------------------------------------------
 
---- Script Step 5 Start ---
-```python
+--- Bash Script Step 5 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ============================================================
 # Step 5 – Reapply ReplayGain (moOde Audio Standard)
 # ============================================================
-import os
-import re
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step05"
+set -u
 
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step05"
 
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
-if subprocess.run(["bash", "-c", "command -v loudgain"],
-                  stdout=subprocess.DEVNULL,
-                  stderr=subprocess.DEVNULL, check=False).returncode != 0:
-    print("ERROR: loudgain is not installed. Install it and re-run "
-          "(see Requirements).", file=sys.stderr)
-    keep_open_on_error(1)
+if ! command -v loudgain >/dev/null 2>&1; then
+    echo "ERROR: loudgain is not installed. Install it and re-run (see Requirements)." >&2
+    exit 1
+fi
 
 # 1. Define Log Files (Five-File Standard)
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-# 2/3. CLEANUP + Initialize this step's logs from any previous run
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+# 2. CLEANUP: Delete this step's own logs from any previous run
+rm -f "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
+
+# 3. Initialize Empty Log Files
+touch "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
 
 # 4. Supported audio extensions
-SUPPORTED_EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "mp4", "ape", "wv", "spx"]
-
-
-def natural_key(s):
-    """LC_ALL=C sort -f -z -V equivalent: case-insensitive version sort."""
-    return [int(t) if t.isdigit() else t.lower()
-            for t in re.split(r"(\d+)", s)]
-
-
-def audio_in(directory):
-    """Case-insensitive match of the supported extensions, as the bash
-    nocaseglob did."""
-    found = []
-    try:
-        entries = os.listdir(directory)
-    except OSError:
-        return found
-    for name in entries:
-        full = os.path.join(directory, name)
-        if os.path.isfile(full) and os.path.splitext(name)[1].lstrip(".").lower() in SUPPORTED_EXTS:
-            found.append(full)
-    return found
-
+SUPPORTED_EXTS=(flac mp3 m4a ogg opus mp4 ape wv spx)
 
 # 5. Gather and sort directories by path (Artist/Album)
-r = subprocess.run(
-    ["find", os.getcwd(), "-type", "d",
-     "!", "-ipath", "*/Ignore/*", "!", "-ipath", "*/Ignore",
-     "!", "-iname", "Ignore", "-print0"],
-    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-dirs = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-dirs.sort(key=lambda s: (s.lower(), s.encode("utf-8", "surrogateescape")))
+mapfile -d '' dirs < <(find "$PWD" -type d \
+    ! -ipath '*/Ignore/*' ! -ipath '*/Ignore' ! -iname 'Ignore' \
+    -print0 | LC_ALL=C sort -f -z)
 
 # 6. Calculate total directories with supported audio files
-albums = [d for d in dirs if audio_in(d)]
-total = len(albums)
+total=0
+for d in "${dirs[@]}"; do
+    shopt -s nocaseglob nullglob
+    files=(
+        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg
+        "$d"/*.opus "$d"/*.mp4 "$d"/*.ape "$d"/*.wv "$d"/*.spx
+    )
+    shopt -u nocaseglob nullglob
+    
+    if [ ${#files[@]} -gt 0 ]; then
+        total=$((total + 1))
+    fi
+done
 
-i = 0
-last_artist = ""
+i=0
+last_artist=""
 
 # 7. Process each directory (album) in Artist/Album order
-for d in albums:
-    i += 1
-    artist = os.path.basename(os.path.dirname(d)) or os.path.basename(
-        os.path.dirname(os.path.abspath(d)))
-    album = os.path.basename(d)
-    label = f"{artist} - {album}"
+for d in "${dirs[@]}"; do
+    shopt -s nocaseglob nullglob
+    files=(
+        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg
+        "$d"/*.opus "$d"/*.mp4 "$d"/*.ape "$d"/*.wv "$d"/*.spx
+    )
+    shopt -u nocaseglob nullglob
+    
+    if [ ${#files[@]} -gt 0 ]; then
+        i=$((i + 1))
 
-    # Insert a blank line on the terminal screen when moving to a new
-    # ARTIST (user preference: ReplayGain output breaks per artist)
-    if last_artist and artist != last_artist:
-        print()
-    last_artist = artist
+        artist=$(basename "$(dirname "$d")")
+        album=$(basename "$d")
+        label="$artist - $album"
 
-    # Write header (assume OK; mark FAIL if any format fails)
-    print(f"OK [{i}/{total}] {label}", flush=True)
-    append(RUN_LOG, f"OK [{i}/{total}] {label}")
-    append(OKS_LOG, f"OK [{i}/{total}] {label}")
+        # Insert a blank line on the terminal screen when moving to a new
+        # ARTIST (user preference: ReplayGain output breaks per artist)
+        if [[ -n "$last_artist" && "$artist" != "$last_artist" ]]; then
+            echo ""
+        fi
+        last_artist="$artist"
 
-    # Process each audio format separately
-    files = audio_in(d)
-    by_ext = {}
-    for path in files:
-        by_ext.setdefault(
-            os.path.splitext(path)[1].lstrip(".").lower(), []).append(path)
-
-    for ext in SUPPORTED_EXTS:
-        group = sorted(by_ext.get(ext, []), key=natural_key)
-        if not group:
-            continue
-
-        if ext in ("m4a", "mp4"):
-            # loudgain has an upstream segfault bug writing album-level tags
-            # into MP4/M4A atoms (documented in Recert Step 2B and the
-            # Apply ReplayGain Nemo action). Same workaround: ffmpeg
-            # container sanitize (stream copy), then Track Gain only.
-            for path in group:
-                stem, ext = os.path.splitext(path)
-                tmp = f"{stem}.rg-sanitize{ext}"
-                r = subprocess.run(
-                    ["ffmpeg", "-nostdin", "-v", "error", "-i", path,
-                     "-map", "0", "-map_metadata", "0", "-c", "copy",
-                     "-movflags", "+faststart", tmp, "-y"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    check=False)
-                if r.returncode == 0:
-                    os.replace(tmp, path)
-                else:
-                    if os.path.exists(tmp):
-                        os.unlink(tmp)
-                # sanitize failure is non-fatal: tagging still attempted
-            args = ["loudgain", "-k", "-s", "e", "-L", "--"]
-        else:
-            # moOde standard flags: -a (album), -k (noclip),
-            # -s e (ReplayGain 2.0 + extra tags), -L (force lowercase tags)
-            args = ["loudgain", "-a", "-k", "-s", "e", "-L", "--"]
-        r = subprocess.run([*args, *group],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.PIPE, text=True, check=False)
-        rc = r.returncode
-
-        if rc != 0:
-            # Move entry from oks to fails (fixed-string match; labels may
-            # contain regex metacharacters)
-            with open(OKS_LOG) as f:
-                lines = [l for l in f.read().splitlines()
-                         if l != f"OK [{i}/{total}] {label}"]
-            with open(OKS_LOG, "w") as f:
-                f.write("\n".join(lines) + ("\n" if lines else ""))
-            append(FAILS_LOG, f"FAIL [{i}/{total}] {label}")
-
-            # Log error details
-            flat = re.sub(r"\s+", " ",
-                          r.stderr.replace("\0", " ")).strip()
-            append(ERRORS_LOG,
-                   f"[{i}/{total}] ERROR (exit {rc}): {label} [.{ext}] :: {d} :: "
-                   f"{flat or 'no stderr output'}")
+        # Write header (assume OK; mark FAIL if any format fails)
+        echo "OK [$i/$total] $label" | tee -a "$RUN_LOG" "$OKS_LOG"
+        
+        # Process each audio format separately
+        for ext in "${SUPPORTED_EXTS[@]}"; do
+            shopt -s nocaseglob nullglob
+            group=("$d"/*."$ext")
+            shopt -u nocaseglob nullglob
+            
+            if [ ${#group[@]} -gt 0 ]; then
+                # Sort format group naturally
+                mapfile -d '' group_sorted < <(printf '%s\0' "${group[@]}" | LC_ALL=C sort -f -z -V)
+                
+                # Run loudgain with moOde standard flags: -a (album), -k (noclip), -s e (ReplayGain 2.0 + extra tags), -L (force lowercase tags)
+                err=$(loudgain -a -k -s e -L -- "${group_sorted[@]}" 2>&1)
+                rc=$?
+                
+                if [ $rc -ne 0 ]; then
+                    # Move entry from oks to fails (fixed-string match; labels may contain regex metacharacters)
+                    grep -vxF "OK [$i/$total] $label" "$OKS_LOG" > "$OKS_LOG.tmp" 2>/dev/null || true
+                    if diff -q "$OKS_LOG" "$OKS_LOG.tmp" >/dev/null 2>&1; then
+                        rm -f "$OKS_LOG.tmp"
+                    else
+                        mv -f "$OKS_LOG.tmp" "$OKS_LOG"
+                    fi
+                    echo "FAIL [$i/$total] $label" >> "$FAILS_LOG"
+                    
+                    # Log error details
+                    flat=$(echo "$err" | tr -d '\000' | tr '\n' ' ' | tr -s ' ')
+                    echo "[$i/$total] ERROR (exit $rc): $label [.$ext] :: $d :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
+                fi
+            fi
+        done
+    fi
+done
 
 # 8. Count Results
-with open(OKS_LOG) as f:
-    ok_lines = {l for l in f.read().splitlines() if l.startswith("OK")}
-with open(FAILS_LOG) as f:
-    fail_lines = {l for l in f.read().splitlines() if l.startswith("FAIL")}
-ok_count, fail_count = len(ok_lines), len(fail_lines)
+ok_count=$(sort -u "$OKS_LOG" 2>/dev/null | grep -a "^OK" | wc -l)
+fail_count=$(sort -u "$FAILS_LOG" 2>/dev/null | grep -a "^FAIL" | wc -l)
 
 # 9. Generate Summary
-with open(SUMMARY_LOG, "w") as f:
-    f.write("Step 5 Summary\n==============\n\n")
-    f.write(f"Step       : {STEP}\n")
-    f.write(f"Run Date   : {time.strftime('%c')}\n\n")
-    f.write(f"Processed  : {total}\n")
-    f.write(f"Passed     : {ok_count}\n")
-    f.write(f"Failed     : {fail_count}\n")
+{
+echo "Step 5 Summary"
+echo "=============="
+echo
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
 
 # 10. Terminal Output
-print()
-if os.path.getsize(ERRORS_LOG) > 0:
-    print("----------------------------------------")
-    print("Errors")
-    print("----------------------------------------")
-    with open(ERRORS_LOG) as f:
-        print(f.read())
-print("----------------------------------------")
-print(f"Processed: {total}  Passed: {ok_count}  Failed: {fail_count}")
-print("----------------------------------------")
-print("Step 5 – Reapply ReplayGain")
-print("----------------------------------------")
+echo
+if [ -s "$ERRORS_LOG" ]; then
+    echo "----------------------------------------"
+    echo "Errors"
+    echo "----------------------------------------"
+    cat "$ERRORS_LOG"
+fi
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 5 – Reapply ReplayGain"
+echo "----------------------------------------"
 
 ```
---- Script Step 5 End ---
+--- Bash Script Step 5 End ---
 
 \ ---------------------------------------------------------------------------------------
 
