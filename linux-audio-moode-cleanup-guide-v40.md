@@ -1,11 +1,8 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v41** — Current version; supersedes v40. The ENTIRE embedded
-script suite is now extensionless Python: Preflight, Steps 1, 1B, 2A,
-2B, 2C.1-2C.6, 2D, 2E, 3-10 and 15a-15d (no-.sh policy). Opus tool
-invocations corrected for opustags 1.9.x; the M4A loudgain album-mode
-segfault is worked around per Recert Step 2B; the Preflight script
-block's missing End marker was repaired.
+**Version: v40** — Current version; supersedes v39. Step 5 (ReplayGain
+reapplication) is now an extensionless Python script, with the M4A/MP4
+loudgain album-mode segfault worked around per Recert Step 2B.
 (Conversions 2026-09-20.)
 
 Change log and version history are maintained separately:
@@ -61,158 +58,126 @@ Run the preflight diagnostic below BEFORE starting any cleanup step. It verifies
 
 **Disk space:** the preflight also performs a dynamic disk-space check, calculated per library — nothing is hardcoded. Step 3 backs up every file as `FILE.prerepair` before overwriting it (Step 7 removes those backups afterwards), so from Step 3 until Step 7 the library needs free space roughly equal to its own audio size. The preflight measures the audio total in the run root and the free space on that filesystem, prints both on screen (e.g. `Library audio size: 254 GB / Free space: 180 GB`), and fails loudly if free space is insufficient.
 
---- Script Preflight Start ---
-```python
+--- Bash Script Preflight Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ---------------------------------------------------------------------------
 # Software Preflight - Verify all required tools before any cleanup step runs
 # ---------------------------------------------------------------------------
-import os
-import subprocess
-import sys
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-os.makedirs(LOG_ROOT, exist_ok=True)
-PREFLIGHT_LOG = os.path.join(LOG_ROOT, "preflight.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+mkdir -p "$LOG_ROOT"
+PREFLIGHT_LOG="$LOG_ROOT/preflight.log"
 
-open(PREFLIGHT_LOG, "w").close()
+: > "$PREFLIGHT_LOG"
 
+echo "================================================" | tee -a "$PREFLIGHT_LOG"
+echo "Software Preflight - All Required Tools"         | tee -a "$PREFLIGHT_LOG"
+echo "================================================" | tee -a "$PREFLIGHT_LOG"
 
-def append(msg):
-    with open(PREFLIGHT_LOG, "a") as f:
-        f.write(msg + "\n")
+missing=0
+pass=0
 
+check_cmd() {
+    local tool="$1"
+    if command -v "$tool" >/dev/null 2>&1; then
+        printf "%-22s : OK\n" "$tool" >> "$PREFLIGHT_LOG"
+        pass=$((pass + 1))
+    else
+        printf "%-22s : MISSING\n" "$tool" >> "$PREFLIGHT_LOG"
+        missing=$((missing + 1))
+    fi
+}
 
-def out_and_log(msg):
-    print(msg, flush=True)
-    append(msg)
+# 1. Steps 1-10 command-line tools
+for tool in flac metaflac ffmpeg ffprobe loudgain python3 vorbiscomment opustags AtomicParsley wvtag jq; do
+    check_cmd "$tool"
+done
 
+# 2. Core utilities assumed present on any Linux system
+for tool in find sort awk grep wc basename dirname mktemp sed tr cmp tee; do
+    check_cmd "$tool"
+done
 
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
+# 3. Python module check: eyeD3 (required by Step 2C.3 for MP3 deduplication)
+if command -v python3 >/dev/null 2>&1; then
+    if python3 -c "import eyed3" >/dev/null 2>&1; then
+        printf "%-22s : OK\n" "eyed3-python-module" >> "$PREFLIGHT_LOG"
+        pass=$((pass + 1))
+    else
+        printf "%-22s : MISSING\n" "eyed3-python-module" >> "$PREFLIGHT_LOG"
+        printf "%-22s : install with: sudo apt install python3-eyed3  (or: python3 -m pip install --user eyeD3)\n" "[hint]" >> "$PREFLIGHT_LOG"
+        missing=$((missing + 1))
+    fi
+else
+    printf "%-22s : MISSING (python3 not found; install the python3 package)\n" "eyed3-python-module" >> "$PREFLIGHT_LOG"
+    missing=$((missing + 1))
+fi
 
-
-out_and_log("================================================")
-out_and_log("Software Preflight - All Required Tools")
-out_and_log("================================================")
-
-pass_count = 0
-missing = 0
-
-
-def check_cmd(tool):
-    global pass_count, missing
-    if subprocess.run(["bash", "-c", f"command -v {tool}"],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                      check=False).returncode == 0:
-        append(f"{tool:<22} : OK")
-        pass_count += 1
-    else:
-        append(f"{tool:<22} : MISSING")
-        missing += 1
-
-
-# 1. Command-line tools required by the Python step suite
-for tool in ("flac", "metaflac", "ffmpeg", "ffprobe", "loudgain", "python3",
-             "vorbiscomment", "opustags", "AtomicParsley", "wvtag", "find"):
-    check_cmd(tool)
-
-# 2. Python module check: eyeD3 (required by Step 2C.3 for MP3 deduplication)
-if subprocess.run(["bash", "-c", "command -v python3"],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                  check=False).returncode == 0:
-    if subprocess.run([sys.executable, "-c", "import eyed3"],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                      check=False).returncode == 0:
-        append(f"{'eyed3-python-module':<22} : OK")
-        pass_count += 1
-    else:
-        append(f"{'eyed3-python-module':<22} : MISSING")
-        append(f"{'[hint]':<22} : install with: sudo apt install python3-eyed3  "
-               "(or: python3 -m pip install --user eyeD3)")
-        missing += 1
-else:
-    append(f"{'eyed3-python-module':<22} : MISSING (python3 not found; "
-           "install the python3 package)")
-    missing += 1
-
-out_and_log("----------------------------------------")
-out_and_log(f"Software - Pass: {pass_count}   Missing: {missing}")
+echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+echo "Software - Pass: $pass   Missing: $missing" | tee -a "$PREFLIGHT_LOG"
 
 # --- DISK-SPACE CHECK (dynamic, per library) -------------------------------
 # Step 3 backs up every file as FILE.prerepair before overwriting it and
 # Step 7 removes those backups, so the library needs free space roughly
 # equal to its own audio size from Step 3 until Step 7. Measure it here,
 # before anything runs — every library is different, so nothing is hardcoded.
-if missing == 0:
-    out_and_log("")
-    out_and_log("Preflight - Disk-Space Check")
-    EXT_LIST = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif",
-                "mp4", "ape", "wv", "spx"]
-    args = ["find", os.getcwd(), "-type", "f",
-            "!", "-ipath", "*/Ignore/*",
-            "!", "-iname", "*.prerepair*",
-            "!", "-iname", "*.fixed.*",
-            "!", "-iname", "*.reencode.*", "("]
-    for i, e in enumerate(EXT_LIST):
-        if i:
-            args.append("-o")
-        args += ["-iname", f"*.{e}"]
-    args += [")", "-printf", "%s\n"]
-    r = subprocess.run(args, stdout=subprocess.PIPE,
-                       stderr=subprocess.DEVNULL, check=False)
-    audio_bytes = sum(int(x) for x in r.stdout.decode().split() if x.isdigit())
-    if audio_bytes > 0:
-        audio_gb = audio_bytes // (1 << 30)
-        r = subprocess.run(["df", "-Pk", os.getcwd()],
-                           stdout=subprocess.PIPE, text=True, check=False)
-        avail_kb = int(r.stdout.splitlines()[1].split()[3])
-        avail_gb = avail_kb // (1 << 20)
-        out_and_log(f"Library audio size : {audio_gb} GB")
-        out_and_log(f"Free space         : {avail_gb} GB on this filesystem")
-        if avail_gb >= audio_gb:
-            out_and_log(f"DISK SPACE: OK - the Step 3 backup layer will fit "
-                        f"(Needed: {audio_gb} GB / Available: {avail_gb} GB).")
-        else:
-            out_and_log("")
-            out_and_log("****************************************************************")
-            out_and_log("WARNING: INSUFFICIENT DISK SPACE")
-            out_and_log("Needed: %d GB (Step 3 duplicates the library as" % audio_gb)
-            out_and_log("FILE.prerepair backups until Step 7 removes them).")
-            out_and_log("Available: %d GB on this filesystem." % avail_gb)
-            out_and_log("Free up space or point the run at a larger filesystem.")
-            out_and_log("****************************************************************")
-            missing += 1
-            append(f"{'disk-space':<22} : FAILED (needed {audio_gb} GB, "
-                   f"available {avail_gb} GB)")
+if [ "$missing" -eq 0 ]; then
+    echo "" | tee -a "$PREFLIGHT_LOG"
+    echo "Preflight - Disk-Space Check" | tee -a "$PREFLIGHT_LOG"
+    audio_bytes=$(find "$PWD" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname '*.prerepair*' ! -iname '*.fixed.*' ! -iname '*.reencode.*' \
+        \( -iname '*.flac' -o -iname '*.mp3'  -o -iname '*.m4a' -o \
+           -iname '*.ogg'  -o -iname '*.opus' -o -iname '*.wav'  -o \
+           -iname '*.aiff' -o -iname '*.aif'  -o -iname '*.mp4'  -o \
+           -iname '*.ape'  -o -iname '*.wv'   -o -iname '*.spx' \
+        \) -printf '%s\n' 2>/dev/null | awk '{s+=$1} END {printf "%.0f", s+0.5}')
+    if [ "${audio_bytes:-0}" -gt 0 ]; then
+        audio_gb=$(( audio_bytes / 1073741824 ))
+        avail_kb=$(df -Pk "$PWD" | awk 'NR==2 {print $4}')
+        avail_gb=$(( avail_kb / 1048576 ))
+        echo "Library audio size : ${audio_gb} GB" | tee -a "$PREFLIGHT_LOG"
+        echo "Free space         : ${avail_gb} GB on this filesystem" | tee -a "$PREFLIGHT_LOG"
+        if [ "$avail_gb" -ge "$audio_gb" ]; then
+            echo "DISK SPACE: OK - the Step 3 backup layer will fit (Needed: ${audio_gb} GB / Available: ${avail_gb} GB)." | tee -a "$PREFLIGHT_LOG"
+        else
+            echo "" | tee -a "$PREFLIGHT_LOG"
+            echo "****************************************************************" | tee -a "$PREFLIGHT_LOG"
+            echo "WARNING: INSUFFICIENT DISK SPACE" | tee -a "$PREFLIGHT_LOG"
+            echo "Needed: ${audio_gb} GB (Step 3 duplicates the library as" | tee -a "$PREFLIGHT_LOG"
+            echo "FILE.prerepair backups until Step 7 removes them)." | tee -a "$PREFLIGHT_LOG"
+            echo "Available: ${avail_gb} GB on this filesystem." | tee -a "$PREFLIGHT_LOG"
+            echo "Free up space or point the run at a larger filesystem." | tee -a "$PREFLIGHT_LOG"
+            echo "****************************************************************" | tee -a "$PREFLIGHT_LOG"
+            missing=$((missing + 1))
+            printf "%-22s : FAILED (needed ${audio_gb} GB, available ${avail_gb} GB)\n" "disk-space" >> "$PREFLIGHT_LOG"
+        fi
+    fi
+fi
 
-out_and_log("----------------------------------------")
-out_and_log(f"Pass: {pass_count}   Missing: {missing}")
+echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+echo "Pass: $pass   Missing: $missing"         | tee -a "$PREFLIGHT_LOG"
 
-if missing == 0:
-    out_and_log("RESULT: ALL SOFTWARE PRESENT - ready to run.")
-    out_and_log("----------------------------------------")
-    out_and_log("Preflight - Software Check")
-    out_and_log("----------------------------------------")
-    sys.exit(0)
-else:
-    out_and_log(f"RESULT: {missing} item(s) missing. "
-                "Install them and re-run preflight.")
-    out_and_log("----------------------------------------")
-    out_and_log("Preflight - Software Check")
-    out_and_log("----------------------------------------")
-    keep_open_on_error(1)
-
+if [ "$missing" -eq 0 ]; then
+    echo "RESULT: ALL SOFTWARE PRESENT - ready to run." | tee -a "$PREFLIGHT_LOG"
+    echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+    echo "Preflight - Software Check" | tee -a "$PREFLIGHT_LOG"
+    echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+    exit 0
+else
+    echo "RESULT: $missing item(s) missing. Install them and re-run preflight." | tee -a "$PREFLIGHT_LOG"
+    echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+    echo "Preflight - Software Check" | tee -a "$PREFLIGHT_LOG"
+    echo "----------------------------------------" | tee -a "$PREFLIGHT_LOG"
+    exit 1
+fi
 ```
---- Script Preflight End ---
+
 -- Multi-Disc Album Organization
 
 Scripts determine Artist and Album from the directory hierarchy. Multi-disc albums must not be nested in sub-directories (e.g., Library/Artist/Album/Disc 1/).
@@ -3374,183 +3339,180 @@ No files are modified during this step.
 
 \ ---------------------------------------------------------------------------------------
 
---- Script Step 6 Start ---
-```python
+--- Bash Script Step 6 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ============================================================
 # Step 6 – Post-ReplayGain Integrity Verification
 # ============================================================
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step06"
+set -u
 
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step06"
 
-
-def which(name):
-    return shutil.which(name) is not None
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
-for tool in ("flac", "ffmpeg"):
-    if not which(tool):
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in flac ffmpeg; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
 # 1. Define Log Files (Five-File Standard)
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-# 2/3. CLEANUP + Initialize this step's logs from any previous run
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+# 2. CLEANUP: Delete this step's own logs from any previous run
+rm -f "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
+
+# 3. Initialize Empty Log Files
+touch "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
 
 # 4. File Discovery
-EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif", "mp4",
-        "ape", "wv", "spx"]
-EXCLUDES = ["!", "-ipath", "*/Ignore/*",
-            "!", "-iname", "*.prerepair*",
-            "!", "-iname", "*.fixed.*",
-            "!", "-iname", "*.reencode.*"]
+mapfile -d '' files < <(
+    find "$PWD" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname "*.prerepair*" \
+        ! -iname "*.fixed.*" \
+        ! -iname "*.reencode.*" \
+        \( \
+            -iname "*.flac" -o \
+            -iname "*.mp3"  -o \
+            -iname "*.m4a"  -o \
+            -iname "*.ogg"  -o \
+            -iname "*.opus" -o \
+            -iname "*.wav"  -o \
+            -iname "*.aiff" -o \
+            -iname "*.aif"  -o \
+            -iname "*.mp4"  -o \
+            -iname "*.ape"  -o \
+            -iname "*.wv"   -o \
+            -iname "*.spx" \
+        \) -print0 2>>"$LOG_ROOT/${STEP}-errors.log" | sort -z
+)
 
-args = ["find", os.getcwd(), "-type", "f", *EXCLUDES, "("]
-for i, e in enumerate(EXTS):
-    if i:
-        args.append("-o")
-    args += ["-iname", f"*.{e}"]
-args += [")", "-print0"]
-err_sink = open(ERRORS_LOG, "a")
-try:
-    r = subprocess.run(args, stdout=subprocess.PIPE, stderr=err_sink, check=False)
-finally:
-    err_sink.close()
-files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # sort -z
+total=${#files[@]}
+i=0
+last_dir=""
 
-total = len(files)
-last_dir = ""
+for f in "${files[@]}"; do
 
-for i, path in enumerate(files, 1):
-    label = os.path.relpath(path, os.getcwd())
-    current_dir = os.path.dirname(label) or "."
+    ((i++))
+    label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
 
     # Insert a blank line on terminal screen when moving to a new folder/album
-    if last_dir and current_dir != last_dir:
-        print()
-    last_dir = current_dir
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        echo ""
+    fi
+    last_dir="$current_dir"
 
-    if path.lower().endswith(".flac"):
-        res = subprocess.run(["flac", "-s", "-t", path],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.PIPE, text=True, check=False)
-    else:
-        res = subprocess.run(
-            ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-f", "null", "-"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-            check=False)
-    rc = res.returncode
+    case "${f,,}" in
+        *.flac)
+            err=$(flac -s -t "$f" 2>&1)
+            rc=$?
+            ;;
+        *)
+            err=$(ffmpeg -nostdin -v error -i "$f" -f null - 2>&1)
+            rc=$?
+            ;;
+    esac
 
-    if rc == 0:
-        out_msg = f"OK   [{i}/{total}] {label}"
-        print(out_msg)
-        append(RUN_LOG, out_msg)
-        append(OKS_LOG, out_msg)
-    else:
-        flat = re.sub(r"\s+", " ",
-                      res.stderr.replace("\r", " ").replace("\n", " ")).strip()
-        out_msg = f"FAIL [{i}/{total}] {label}"
-        print(out_msg)
-        append(RUN_LOG, out_msg)
-        append(FAILS_LOG, out_msg)
-        append(ERRORS_LOG,
-               f"[{i}/{total}] ERROR (exit {rc}): {label} :: {path} :: "
-               f"{flat or 'no stderr output'}")
+    if [ $rc -eq 0 ]; then
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
+    else
+        flat=$(printf '%s\n' "$err" | tr '\r\n' ' ' | tr -s ' ')
+        out_msg="FAIL [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
+        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
+    fi
+
+done
 
 # 5. Count Results
-with open(RUN_LOG) as f:
-    run_text = f.read()
-ok_count = sum(1 for l in run_text.splitlines() if l.startswith("OK"))
-fail_count = sum(1 for l in run_text.splitlines() if l.startswith("FAIL"))
+ok_count=$(grep -a "^OK" "$RUN_LOG" 2>/dev/null | wc -l)
+fail_count=$(grep -a "^FAIL" "$RUN_LOG" 2>/dev/null | wc -l)
 
 # 6. Generate Summary Log
-with open(SUMMARY_LOG, "w") as f:
-    f.write("Step 4 Summary\n==============\n\n")
-    f.write(f"Step       : {STEP}\n")
-    f.write(f"Run Date   : {time.strftime('%c')}\n\n")
-    f.write(f"Processed  : {total}\n")
-    f.write(f"Passed     : {ok_count}\n")
-    f.write(f"Failed     : {fail_count}\n")
+{
+echo "Step 6 Summary"
+echo "=============="
+echo
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
 
 # 7. Terminal Output
-print()
-if os.path.getsize(ERRORS_LOG) > 0:
-    print("----------------------------------------")
-    print("Error Summary")
-    print("----------------------------------------")
-    lost_sync, eos = {}, {}
-    with open(ERRORS_LOG, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if "LOST_SYNC" in line:
-                idx = line.find(" :: ")
-                if idx > 0:
-                    temp = line[:idx]
-                    pos = temp.find("): ") + 3
-                    lost_sync[temp[pos:]] = True
-            elif "END_OF_STREAM" in line:
-                idx = line.find(" :: ")
-                if idx > 0:
-                    temp = line[:idx]
-                    pos = temp.find("): ") + 3
-                    eos[temp[pos:]] = True
-    if lost_sync:
-        print("LOST_SYNC")
-        print("----------")
-        for p in sorted(lost_sync):
-            print(p)
-    if eos:
-        if lost_sync:
-            print()
-        print("END_OF_STREAM")
-        print("----------")
-        for p in sorted(eos):
-            print(p)
+echo
+if [ -s "$ERRORS_LOG" ]; then
+    echo "----------------------------------------"
+    echo "Error Summary"
+    echo "----------------------------------------"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
+fi
 
-print()
-print("----------------------------------------")
-print(f"Processed: {total}  Passed: {ok_count}  Failed: {fail_count}")
-print("----------------------------------------")
-print("Step 6 – Post-ReplayGain Integrity Verification")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 6 – Post-ReplayGain Integrity Verification"
+echo "----------------------------------------"
 
 ```
---- Script Step 6 End ---
+--- Bash Script Step 6 End ---
 
 \ ---------------------------------------------------------------------------------------
 
@@ -3586,61 +3548,65 @@ This cleanup ensures only the intended music files and required metadata remain 
 
 \ ---------------------------------------------------------------------------------------
 
---- Script Step 7 Start ---
-```python
+--- Bash Script Step 7 Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ============================================================
 # Step 7 – Remove Loose Files
 # ============================================================
-import fnmatch
-import os
-import sys
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step07"
+set -u
 
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step07"
+
+mkdir -p "$LOG_ROOT"
 
 # 1. Define Log File
-REMOVED_LOG = os.path.join(LOG_ROOT, f"{STEP}-removed.log")
+REMOVED_LOG="$LOG_ROOT/${STEP}-removed.log"
 
 # 2. CLEANUP: Delete previous log
-open(REMOVED_LOG, "w").close()
+rm -f "$REMOVED_LOG"
 
 # 3. Find temporary files
-ARTIFACT_PATTERNS = ["*.fixed.*", "*.prerepair", "*.prerepair.flac",
-                     "*.reencode", "*.reencode.flac", "*.tmp", "*.temp", "*~"]
-removed_list = []
-for root, dirnames, filenames in os.walk(os.getcwd()):
-    dirnames[:] = [d for d in dirnames if d.lower() != "ignore"]
-    for name in filenames:
-        if any(fnmatch.fnmatch(name.lower(), p) for p in ARTIFACT_PATTERNS):
-            removed_list.append(os.path.join(root, name))
-removed_list.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))
-with open(REMOVED_LOG, "w") as f:
-    for path in removed_list:
-        f.write(path + "\n")
+find "$PWD" \
+    -type f \
+    ! -ipath '*/Ignore/*' \
+    \( \
+        -iname "*.fixed.*" \
+        -o -iname "*.prerepair" \
+        -o -iname "*.prerepair.flac" \
+        -o -iname "*.reencode" \
+        -o -iname "*.reencode.flac" \
+        -o -iname "*.tmp" \
+        -o -iname "*.temp" \
+        -o -iname "*~" \
+    \) \
+    -print > "$REMOVED_LOG"
 
 # 4. Remove and count actually-removed files
-count = 0
-for path in removed_list:
-    try:
-        os.unlink(path)
-        count += 1
-    except OSError:
-        pass
+count=0
+while IFS= read -r f; do
+    if rm -f "$f" 2>/dev/null; then
+        count=$((count + 1))
+    fi
+done < "$REMOVED_LOG"
 
 # 5. Terminal Output
-print()
-print("----------------------------------------")
-print(f"Removed: {count} files")
-print("----------------------------------------")
-print("Step 7 – Remove Loose Files")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Removed: $count files"
+echo "----------------------------------------"
+echo "Step 7 – Remove Loose Files"
+echo "----------------------------------------"
 
 ```
---- Script Step 7 End ---
+--- Bash Script Step 7 End ---
 
 \ ---------------------------------------------------------------------------------------
 
@@ -3688,233 +3654,201 @@ This step:
 
 \---------------------------------------------------------------------------------------
 
---- Script Step 8 Start ---
-```python
+--- Bash Script Step 8 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 8 – Deep Repair via Decode/Re-encode (Last Resort)
 # ------------------------------------------------------------
-import os
-import re
-import shutil
-import subprocess
-import sys
-import tempfile
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-os.makedirs(LOG_ROOT, exist_ok=True)
-
-RUN_LOG = os.path.join(LOG_ROOT, "step08-run.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, "step08-errors.log")
-REVIEW_LOG = os.path.join(LOG_ROOT, "step08-review.log")
-open(ERRORS_LOG, "w").close()
-open(REVIEW_LOG, "w").close()
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+mkdir -p "$LOG_ROOT"
+: > "$LOG_ROOT/step08-errors.log"
+: > "$LOG_ROOT/step08-review.log"
 
 # Software Preflight: fail loudly if a required tool is missing
-for tool in ("flac", "metaflac", "ffmpeg"):
-    if shutil.which(tool) is None:
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in flac metaflac ffmpeg; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
-find_args = ["find", os.getcwd(), "-type", "f", "!", "-ipath", "*/Ignore/*",
-             "-name", "*.flac",
-             "!", "-iname", "*.prerepair*",
-             "!", "-iname", "*.reencode*",
-             "!", "-iname", "*.fixed.*", "-print0"]
-r = subprocess.run(find_args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                   check=False)
-files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # sort -z
+mapfile -d '' files < <(
+    find "$PWD" -type f ! -ipath '*/Ignore/*' -name "*.flac" \
+        ! -iname "*.prerepair*" \
+        ! -iname "*.reencode*" \
+        ! -iname "*.fixed.*" \
+        -print0 | sort -z
+)
 
-total = len(files)
-last_dir = ""
+total=${#files[@]}
+i=0
+last_dir=""
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
+for f in "${files[@]}"; do
+    i=$((i+1))
+    progress "$i" "$total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "${f#"$PWD"/}")"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
+    artist=$(basename "$(dirname "$(dirname "$f")")")
+    album=$(basename "$(dirname "$f")")
+    track=$(basename "$f" .flac)
 
+    label="$artist-$album-$track"
 
-def capture(cmd):
-    """Run a command capturing stderr as text."""
-    r = subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.PIPE, text=True, check=False)
-    return r.returncode, r.stderr
+    testerr=$(flac -s -t "$f" 2>&1 >/dev/null)
+    testrc=$?
 
-
-for i, path in enumerate(files, 1):
-    progress(i, total)
-    hdr = os.path.dirname(os.path.relpath(path, os.getcwd()))
-    if last_dir and hdr != last_dir and is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-    last_dir = hdr
-
-    artist = os.path.basename(os.path.dirname(os.path.dirname(path)))
-    album = os.path.basename(os.path.dirname(path))
-    track = os.path.basename(path)[:-len(".flac")]
-    label = f"{artist}-{album}-{track}"
-
-    testrc, _ = capture(["flac", "-s", "-t", path])
-    if testrc == 0:
-        append(RUN_LOG, f"OK [{i}/{total}] {label}")
+    if [ $testrc -eq 0 ]; then
+        echo "OK [$i/$total] $label" >> "$LOG_ROOT/step08-run.log"
         continue
+    fi
 
-    fd, tags = tempfile.mkstemp(prefix="step08-tags.", dir=LOG_ROOT)
-    os.close(fd)
-    open(tags, "w").close()
+    tags=$(mktemp "$LOG_ROOT/step08-tags.XXXXXX")
 
-    tagrc, tagerr = capture(["metaflac", f"--export-tags-to={tags}", path])
-    if tagrc != 0:
-        flat = re.sub(r"\s+", " ", tagerr).strip()
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {tagrc}, tag export): "
-                           f"{label} :: {path} :: {flat or 'no stderr output'}")
-        os.unlink(tags)
+    tagerr=$(metaflac --export-tags-to="$tags" "$f" 2>&1 >/dev/null)
+    tagrc=$?
+
+    if [ $tagrc -ne 0 ]; then
+        flat=$(echo "$tagerr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+        echo "[$i/$total] ERROR (exit $tagrc, tag export): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOG_ROOT/step08-errors.log"
+        rm -f "$tags"
         continue
+    fi
 
     # Save the first embedded picture so it can be restored after the re-encode
-    pic = os.path.join(LOG_ROOT, f"step08-pic.{os.getpid()}.{i}")
-    had_pic = False
-    prc, _ = capture(["metaflac", f"--export-picture-to={pic}", path])
-    if prc == 0 and os.path.getsize(pic) > 0:
-        had_pic = True
-    else:
-        if os.path.exists(pic):
-            os.unlink(pic)
+    pic=$(mktemp "$LOG_ROOT/step08-pic.XXXXXX")
+    rm -f "$pic"
+    if metaflac --export-picture-to="$pic" "$f" >/dev/null 2>&1 && [ -s "$pic" ]; then
+        had_pic=1
+    else
+        had_pic=0
+        rm -f "$pic"
+    fi
 
-    rerc, reerr = capture(
-        ["ffmpeg", "-nostdin", "-nostats", "-loglevel", "warning",
-         "-i", path, "-map", "0:a:0", "-c:a", "flac", "-f", "flac",
-         path + ".reencode", "-y"])
-    if rerc != 0:
-        flat = re.sub(r"\s+", " ", reerr).strip()
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {rerc}, reencode): "
-                           f"{label} :: {path} :: {flat or 'no stderr output'}")
-        for path_ in (tags, pic, path + ".reencode"):
-            if os.path.exists(path_):
-                os.unlink(path_)
-        continue
+    reerr=$(ffmpeg -nostdin -nostats -loglevel warning \
+        -i "$f" \
+        -map 0:a:0 \
+        -c:a flac \
+        -f flac \
+        "${f}.reencode" \
+        -y 2>&1 >/dev/null)
+    rerc=$?
 
-    postrc, posterr = capture(["flac", "-s", "-t", path + ".reencode"])
-    if postrc != 0:
-        flat = re.sub(r"\s+", " ", posterr).strip()
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {postrc}, post-reencode "
-                           f"test): {label} :: {path} :: {flat or 'no stderr output'}")
-        for path_ in (tags, pic, path + ".reencode"):
-            if os.path.exists(path_):
-                os.unlink(path_)
+    if [ $rerc -ne 0 ]; then
+        flat=$(echo "$reerr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+        echo "[$i/$total] ERROR (exit $rerc, reencode): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOG_ROOT/step08-errors.log"
+        rm -f "$tags" "$pic" "${f}.reencode"
         continue
+    fi
+
+    posterr=$(flac -s -t "${f}.reencode" 2>&1 >/dev/null)
+    postrc=$?
+
+    if [ $postrc -ne 0 ]; then
+        flat=$(echo "$posterr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+        echo "[$i/$total] ERROR (exit $postrc, post-reencode test): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOG_ROOT/step08-errors.log"
+        rm -f "$tags" "$pic" "${f}.reencode"
+        continue
+    fi
 
     # Rebuild tags from scratch (--import-tags-from APPENDS; it will not replace)
-    imprc, impterr = capture(["metaflac", "--remove-all-tags", path + ".reencode"])
-    if imprc == 0:
-        imprc, impterr = capture(
-            ["metaflac", f"--import-tags-from={tags}", path + ".reencode"])
-    if imprc == 0 and had_pic:
-        imprc, impterr = capture(
-            ["metaflac", f"--import-picture-from={pic}", path + ".reencode"])
+    impterr=$(metaflac --remove-all-tags "${f}.reencode" 2>&1 >/dev/null)
+    imprc=$?
+    if [ $imprc -eq 0 ]; then
+        impterr=$(metaflac --import-tags-from="$tags" "${f}.reencode" 2>&1 >/dev/null)
+        imprc=$?
+    fi
+    if [ $imprc -eq 0 ] && [ "$had_pic" -eq 1 ]; then
+        impterr=$(metaflac --import-picture-from="$pic" "${f}.reencode" 2>&1 >/dev/null)
+        imprc=$?
+    fi
 
-    if imprc != 0:
-        flat = re.sub(r"\s+", " ", impterr).strip()
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {imprc}, tag/picture "
-                           f"reimport): {label} :: {path} :: {flat or 'no stderr output'}")
-        for path_ in (tags, pic, path + ".reencode"):
-            if os.path.exists(path_):
-                os.unlink(path_)
+    if [ $imprc -ne 0 ]; then
+        flat=$(echo "$impterr" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+        echo "[$i/$total] ERROR (exit $imprc, tag/picture reimport): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOG_ROOT/step08-errors.log"
+        rm -f "$tags" "$pic" "${f}.reencode"
         continue
+    fi
 
     # Preserve the original once; suffix is non-FLAC so moOde never indexes it
-    prerepair = path + ".prerepair"
-    if not os.path.exists(prerepair):
-        try:
-            shutil.copy(path, prerepair)
-        except OSError:
-            print(f"FAIL [{i}/{total}] {label}", flush=True)
-            append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-            append(ERRORS_LOG, f"[{i}/{total}] ERROR (backup failed): {label} :: "
-                               f"{path} :: could not create {prerepair}")
-            for path_ in (tags, pic, path + ".reencode"):
-                if os.path.exists(path_):
-                    os.unlink(path_)
+    if [ ! -e "${f}.prerepair" ]; then
+        if ! cp "$f" "${f}.prerepair" >/dev/null 2>&1; then
+            echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+            echo "[$i/$total] ERROR (backup failed): $label :: $f :: could not create ${f}.prerepair" \
+                >> "$LOG_ROOT/step08-errors.log"
+            rm -f "$tags" "$pic" "${f}.reencode"
             continue
+        fi
+    fi
 
-    try:
-        os.replace(path + ".reencode", path)
-    except OSError:
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR (mv failed): {label} :: {path} :: "
-                           "could not move rebuilt file into place")
-        for path_ in (tags, pic, path + ".reencode"):
-            if os.path.exists(path_):
-                os.unlink(path_)
+    if ! mv -f "${f}.reencode" "$f" >/dev/null 2>&1; then
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+        echo "[$i/$total] ERROR (mv failed): $label :: $f :: could not move rebuilt file into place" \
+            >> "$LOG_ROOT/step08-errors.log"
+        rm -f "$tags" "$pic" "${f}.reencode"
         continue
-    os.unlink(tags)
-    if had_pic and os.path.exists(pic):
-        os.unlink(pic)
+    fi
+    rm -f "$tags" "$pic"
 
     # The rebuild already passed a full decode test before the swap, so the
     # backup has served its purpose — no residuals left behind.
-    if os.path.exists(prerepair):
-        os.unlink(prerepair)
+    rm -f "${f}.prerepair"
 
-    if reerr.strip():
-        flat = re.sub(r"\s+", " ", reerr).strip()
-        print(f"FIXED-REVIEW [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FIXED-REVIEW [{i}/{total}] {label}")
-        append(REVIEW_LOG, f"[{i}/{total}] REVIEW {label} :: {path} :: "
-                           f"ffmpeg reported during decode: {flat}")
-    else:
-        print(f"FIXED-CLEAN [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FIXED-CLEAN [{i}/{total}] {label}")
+    if [ -n "$reerr" ]; then
+        flat=$(echo "$reerr" | tr '\n' ' ' | tr -s ' ')
+        echo "FIXED-REVIEW [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+        echo "[$i/$total] REVIEW $label :: $f :: ffmpeg reported during decode: $flat" \
+            >> "$LOG_ROOT/step08-review.log"
+    else
+        echo "FIXED-CLEAN [$i/$total] $label" | tee -a "$LOG_ROOT/step08-run.log"
+    fi
 
-if is_tty:
-    sys.stderr.write("\n")
-print()
-print("----------------------------------------")
-print("Step 8 – Deep Repair via Decode/Re-encode (Last Resort)")
-print("----------------------------------------")
+done
+printf '\n' >&2
+echo
+echo "----------------------------------------"
+echo "Step 8 – Deep Repair via Decode/Re-encode (Last Resort)"
+echo "----------------------------------------"
 
 ```
---- Script Step 8 End ---
+--- Bash Script Step 8 End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -4010,271 +3944,195 @@ This step:
 
 Run from the terminal against the library root (or an artist folder for a targeted check):
 
---- Script Step 9 Start ---
-```python
+--- Bash Script Step 9 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 9 – Verify Tags Against Filenames (Failsafe)
 # ------------------------------------------------------------
-import json
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+mkdir -p "$LOG_ROOT"
 
-if len(sys.argv) < 2:
-    print("Usage: step9-verify /path/to/music/root", file=sys.stderr)
-    sys.exit(1)
-TARGET = sys.argv[1]
+TARGET="${1:?Usage: $0 /path/to/music/root}"
 
-RUN_LOG = os.path.join(LOG_ROOT, "step09-run.log")
-MISMATCH_LOG = os.path.join(LOG_ROOT, "step09-mismatches.log")
-FORMAT_LOG = os.path.join(LOG_ROOT, "step09-format-errors.log")
+RUN_LOG="$LOG_ROOT/step09-run.log"
+MISMATCH_LOG="$LOG_ROOT/step09-mismatches.log"
 
-open(RUN_LOG, "w").close()
-open(MISMATCH_LOG, "w").close()
-open(FORMAT_LOG, "w").close()
+: > "$RUN_LOG"
+: > "$MISMATCH_LOG"
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+# "Close" tags are fine, so the comparator folds cosmetic differences:
+# lowercase, then keep ONLY alphanumeric characters. Smart quotes
+# ("Ain't" vs "Ain't"), punctuation-only drift ("Name?" vs "Name"),
+# and spacing variants all compare equal. A genuinely different word
+# set still differs and flags.
+norm() { tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]'; }
 
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-if shutil.which("ffprobe") is None:
-    print("ERROR: ffprobe is not installed. Install it and re-run "
-          "(see Requirements).", file=sys.stderr)
-    keep_open_on_error(1)
-
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
-
-
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-def norm(s):
-    """"Close" tags are fine, so the comparator folds cosmetic differences:
-    lowercase, then keep ONLY alphanumeric characters. Smart quotes
-    ("Ain't" vs "Ain't"), punctuation-only drift ("Name?" vs "Name"),
-    and spacing variants all compare equal. A genuinely different word
-    set still differs and flags."""
-    return re.sub(r"[^a-z0-9]", "", s.lower())
-
-
-def find_audio(exts):
-    args = ["find", TARGET, "-type", "f", "!", "-ipath", "*/Ignore/*", "("]
-    for i, e in enumerate(exts):
-        if i:
-            args.append("-o")
-        args += ["-iname", f"*.{e}"]
-    args += [")", "-print0"]
-    r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                       check=False)
-    files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-    files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))
-    return files
-
-
-def rel(path):
-    out = os.path.relpath(path, TARGET) if path.startswith(
-        os.path.abspath(TARGET) + os.sep) else path
-    return out
-
-
-def banner(msg):
-    print(msg)
-    append(RUN_LOG, msg)
-
-
-banner("========== Step 9: Verify Tags Against Filenames ==========")
-banner(f"Root: {TARGET}")
-banner(f"Started: {time.strftime('%c')}")
-print()
+echo "========== Step 9: Verify Tags Against Filenames ==========" | tee -a "$RUN_LOG"
+echo "Root: $TARGET" | tee -a "$RUN_LOG"
+echo "Started: $(date)" | tee -a "$RUN_LOG"
+echo
 
 # --- Pre-flight: format check --------------------------------------
 # Confirm every audio file's container actually matches its extension
 # before trusting any tag comparison. Wrong-container/mislabeled files
 # are reported to step09-format-errors.log but still verified below.
-fmt_files = find_audio(["flac", "mp3", "m4a"])
-fmt_total = len(fmt_files)
-fmt_done = 0
+FORMAT_LOG="$LOG_ROOT/step09-format-errors.log"
+: > "$FORMAT_LOG"
+mapfile -d '' fmt_files < <(find "$TARGET" -type f ! -ipath '*/Ignore/*' \( -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" \) -print0 | sort -z)
+fmt_total=${#fmt_files[@]}
+fmt_done=0
+start_ts=$(date +%s)
+while IFS= read -r -d '' filepath; do
+    fmt_done=$((fmt_done+1))
+    progress "$fmt_done" "$fmt_total"
+    ext="${filepath##*.}"
+    ext="${ext,,}"
+    fmt=$(ffprobe -v error -show_entries format=format_name -of default=nw=1:nk=1 "$filepath" 2>/dev/null)
+    case "$ext" in
+        flac) want="flac" ;;
+        mp3)  want="mp3" ;;
+        m4a)  want="mov mp4 m4a" ;;
+        *)    want="" ;;
+    esac
+    if [ -n "$want" ] && [ -n "$fmt" ]; then
+        fmt_ok=0
+        IFS=',' read -ra parts <<< "$fmt"
+        for p in "${parts[@]}"; do
+            case " $want " in *" $p "*) fmt_ok=1 ;; esac
+        done
+        if [ "$fmt_ok" -eq 0 ]; then
+            echo "FORMAT|${filepath#"$TARGET"/}|extension=.$ext but ffprobe reports: $fmt" >> "$FORMAT_LOG"
+        fi
+    fi
+done < <(printf '%s\0' "${fmt_files[@]}")
+printf '\n' >&2
+if [ -s "$FORMAT_LOG" ]; then
+    echo "Pre-flight found possible format/extension mismatches in $(wc -l < "$FORMAT_LOG") file(s) — see $FORMAT_LOG" | tee -a "$RUN_LOG"
+else
+    echo "Pre-flight: all containers match their extensions." | tee -a "$RUN_LOG"
+fi
+echo
 
-WANT = {"flac": ["flac"], "mp3": ["mp3"], "m4a": ["mov", "mp4", "m4a"]}
+checked=0
+mismatched=0
+last_dir=""
+start_ts=$(date +%s)
 
-for filepath in fmt_files:
-    fmt_done = fmt_files.index(filepath) + 1
-    progress(fmt_done, fmt_total)
-    ext = os.path.splitext(filepath)[1].lstrip(".").lower()
-    r = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=format_name",
-         "-of", "default=nw=1:nk=1", filepath],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        check=False)
-    fmt = r.stdout.strip()
-    want = WANT.get(ext, "")
-    if want and fmt:
-        parts = [p.strip() for p in fmt.split(",")]
-        if not any(p in want for p in parts):
-            append(FORMAT_LOG,
-                   f"FORMAT|{rel_path(filepath)}|extension=.{ext} but ffprobe "
-                   f"reports: {fmt}")
+while IFS= read -r -d '' filepath; do
+    checked=$((checked+1))
+    progress "$checked" "$fmt_total"
+    # Album header on folder change (stderr only)
+    hdr="$(dirname "${filepath#"$TARGET"/}")"; [ "$filepath" != "${filepath#"$TARGET"/}" ] || hdr="$(dirname "$filepath")"
+    hdr="${hdr#./}"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
+    filename=$(basename "$filepath")
+    rel="${filepath#"$TARGET"/}"
+    [ -n "$rel" ] || rel="$filepath"
+    name_no_ext="${filename%.*}"
 
-if is_tty:
-    sys.stderr.write("\n")
-if os.path.getsize(FORMAT_LOG) > 0:
-    with open(FORMAT_LOG) as f:
-        n = len(f.read().splitlines())
-    msg = (f"Pre-flight found possible format/extension mismatches in {n} "
-           f"file(s) — see {FORMAT_LOG}")
-    print(msg)
-    append(RUN_LOG, msg)
-else:
-    msg = "Pre-flight: all containers match their extensions."
-    print(msg)
-    append(RUN_LOG, msg)
-print()
+    parent_dir=$(dirname "$filepath")
+    album_dir=$(basename "$parent_dir")
+    artist_dir=$(basename "$(dirname "$parent_dir")")
 
-checked = mismatched = 0
-last_dir = ""
+    album_year=""
+    album_name="$album_dir"
+    if [[ "$album_dir" =~ ^([0-9]{4})[[:space:]]+(.+)$ ]]; then
+        album_year="${BASH_REMATCH[1]}"
+        album_name="${BASH_REMATCH[2]}"
+    fi
 
-
-def rel_path(path):
-    out = os.path.relpath(path, TARGET) if path.startswith(
-        os.path.abspath(TARGET) + os.sep) else path
-    return out
-
-
-def tag_value(tags, key):
-    """Case-insensitive exact key lookup, first value wins."""
-    for k, v in tags.items():
-        if k.lower() == key:
-            return v
-    return ""
-
-
-for filepath in fmt_files:
-    checked += 1
-    progress(checked, fmt_total)
-    hdr = os.path.dirname(rel_path(filepath))
-    if last_dir and hdr != last_dir and is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-    last_dir = hdr
-    filename = os.path.basename(filepath)
-    rel = rel_path(filepath)
-    name_no_ext = os.path.splitext(filename)[0]
-
-    parent_dir = os.path.dirname(filepath)
-    album_dir = os.path.basename(parent_dir)
-    artist_dir = os.path.basename(os.path.dirname(parent_dir))
-
-    m = re.match(r"^(\d{4})\s+(.+)$", album_dir)
-    album_year, album_name = (m.group(1), m.group(2)) if m else ("", album_dir)
-
-    m = re.match(r"^(\d+)\s+(-\s+)?(.+)$", name_no_ext)
-    if not m:
-        append(MISMATCH_LOG, f"UNPARSEABLE|{rel}|filename has no \"NN Title\"")
-        mismatched += 1
+    if [[ "$name_no_ext" =~ ^([0-9]+)[[:space:]]+(-[[:space:]]+)?(.+)$ ]]; then
+        want_track_str="${BASH_REMATCH[1]}"
+        want_track=$(( 10#${want_track_str} ))
+        want_title="${BASH_REMATCH[3]}"
+    else
+        echo "UNPARSEABLE|$rel|filename has no \"NN Title\"" >> "$MISMATCH_LOG"
+        mismatched=$((mismatched+1))
         continue
-    want_track = int(m.group(1))
-    want_title = m.group(3)
+    fi
 
-    r = subprocess.run(
-        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format",
-         filepath], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        text=True, check=False)
-    try:
-        tags = json.loads(r.stdout).get("format", {}).get("tags") or {}
-    except (ValueError, AttributeError):
-        tags = None
-    if tags is None:
-        append(MISMATCH_LOG, f"NOFFPROBE|{rel}|ffprobe could not read tags")
-        mismatched += 1
-        continue
+    json=$(ffprobe -v error -print_format json -show_format "$filepath" 2>/dev/null)
+    [ -z "$json" ] && { echo "NOFFPROBE|$rel|ffprobe could not read tags" >> "$MISMATCH_LOG"; mismatched=$((mismatched+1)); continue; }
 
-    got_track = tag_value(tags, "track") or tag_value("tracknumber")
-    got_title = tag_value(tags, "title")
-    got_artist = tag_value(tags, "artist")
-    got_album_artist = tag_value(tags, "album_artist")
-    got_album = tag_value(tags, "album")
-    got_year = tag_value(tags, "date") or tag_value("year")
+    t() { jq -r --arg k "$1" '.format.tags | to_entries[] | select(.key | ascii_downcase == $k) | .value' <<< "$json" | head -1; }
+    got_track=$(t track)
+    [ -z "$got_track" ] && got_track=$(t tracknumber)
+    got_title=$(t title)
+    got_artist=$(t artist)
+    got_album_artist=$(t album_artist)
+    got_album=$(t album)
+    got_year=$(t date)
+    [ -z "$got_year" ] && got_year=$(t year)
 
-    got_track = got_track.split("/", 1)[0]
-    got_track = int(got_track) if got_track.strip().isdigit() else None
+    got_track=${got_track%%/*}
+    if [[ "$got_track" =~ ^[0-9]+$ ]]; then
+        got_track=$(( 10#${got_track} ))
+    else
+        got_track=""
+    fi
 
-    issues = []
-    for name, val in (("artist", got_artist), ("album_artist", got_album_artist),
-                      ("album", got_album), ("year", got_year),
-                      ("title", got_title), ("tracknumber", got_track)):
-        if not val:
-            issues.append(f"missing {name}")
+    issues=()
+    [ -z "$got_artist" ] && issues+=("missing artist")
+    [ -z "$got_album_artist" ] && issues+=("missing album_artist")
+    [ -z "$got_album" ] && issues+=("missing album")
+    [ -z "$got_year" ] && issues+=("missing year")
+    [ -z "$got_title" ] && issues+=("missing title")
+    [ -z "$got_track" ] && issues+=("missing tracknumber")
 
-    if got_artist and norm(got_artist) != norm(artist_dir):
-        issues.append("artist tag differs")
-    if got_album and norm(got_album) != norm(album_name):
-        issues.append("album tag differs")
-    if got_year and album_year and norm(got_year) != norm(album_year):
-        issues.append("year tag differs")
-    if got_title and norm(got_title) != norm(want_title):
-        issues.append("title tag differs")
-    if got_track is not None and got_track != want_track:
-        issues.append("tracknumber differs")
+    [ -n "$got_artist" ] && [[ "$(norm <<< "$got_artist")" != "$(norm <<< "$artist_dir")" ]] && issues+=("artist tag differs")
+    [ -n "$got_album" ] && [[ "$(norm <<< "$got_album")" != "$(norm <<< "$album_name")" ]] && issues+=("album tag differs")
+    [ -n "$got_year" ] && [ -n "$album_year" ] && [[ "$(norm <<< "$got_year")" != "$(norm <<< "$album_year")" ]] && issues+=("year tag differs")
+    [ -n "$got_title" ] && [[ "$(norm <<< "$got_title")" != "$(norm <<< "$want_title")" ]] && issues+=("title tag differs")
+    [ -n "$got_track" ] && [ "$got_track" -ne "$want_track" ] && issues+=("tracknumber differs")
 
-    if issues:
-        append(MISMATCH_LOG, f"MISMATCH|{rel}|{'; '.join(issues)}")
-        mismatched += 1
+    if [ "${#issues[@]}" -gt 0 ]; then
+        echo "MISMATCH|$rel|$(IFS='; '; echo "${issues[*]}")" >> "$MISMATCH_LOG"
+        mismatched=$((mismatched+1))
+    fi
+done < <(printf '%s\0' "${fmt_files[@]}")
+printf '\n' >&2
 
-if is_tty:
-    sys.stderr.write("\n")
+if [ -s "$MISMATCH_LOG" ]; then
+    cat "$MISMATCH_LOG" | tee -a "$RUN_LOG"
+else
+    echo "No tag/filename mismatches found." | tee -a "$RUN_LOG"
+fi
 
-if os.path.getsize(MISMATCH_LOG) > 0:
-    with open(MISMATCH_LOG) as f:
-        content = f.read()
-    print(content, end="")
-    append(RUN_LOG, content)
-else:
-    msg = "No tag/filename mismatches found."
-    print(msg)
-    append(RUN_LOG, msg)
-
-print()
-print("----------------------------------------")
-print(f"SUMMARY: {checked} file(s) checked, {mismatched} had tag/filename "
-      "mismatches.")
-print(f"Log: {MISMATCH_LOG}")
-print("----------------------------------------")
-print("Fix findings interactively with the 'Write Tags from Folder/File")
-print("Names' Nemo action, then re-run Step 16 to regenerate checksums.")
+echo
+echo "----------------------------------------"
+echo "SUMMARY: $checked file(s) checked, $mismatched had tag/filename mismatches."
+echo "Log: $MISMATCH_LOG"
+echo "----------------------------------------"
+echo "Fix findings interactively with the 'Write Tags from Folder/File"
+echo "Names' Nemo action, then re-run Step 16 to regenerate checksums."
 
 ```
---- Script Step 9 End ---
+--- Bash Script Step 9 End ---
 
 Run it with your music root as the argument, e.g.:
 
@@ -4326,205 +4184,202 @@ No files are modified during this step.
 
 \ ---------------------------------------------------------------------------------------
 
---- Script Step 10 Start ---
-```python
+--- Bash Script Step 10 Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ============================================================
 # Step 10 – Final Integrity Test
 # ============================================================
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step10"
+set -u
 
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step10"
 
-
-def which(name):
-    return shutil.which(name) is not None
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
-for tool in ("flac", "ffmpeg"):
-    if not which(tool):
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in flac ffmpeg; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
 # 1. Define Log Files (Five-File Standard)
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-# 2/3. CLEANUP + Initialize this step's logs from any previous run
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+# 2. CLEANUP: Delete this step's own logs from any previous run
+rm -f "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
+
+# 3. Initialize Empty Log Files
+touch "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
 
 # 4. File Discovery
-EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif", "mp4",
-        "ape", "wv", "spx"]
-EXCLUDES = ["!", "-ipath", "*/Ignore/*",
-            "!", "-iname", "*.prerepair*",
-            "!", "-iname", "*.fixed.*",
-            "!", "-iname", "*.reencode.*"]
+mapfile -d '' files < <(
+    find "$PWD" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname "*.prerepair*" \
+        ! -iname "*.fixed.*" \
+        ! -iname "*.reencode.*" \
+        \( \
+            -iname "*.flac" -o \
+            -iname "*.mp3"  -o \
+            -iname "*.m4a"  -o \
+            -iname "*.ogg"  -o \
+            -iname "*.opus" -o \
+            -iname "*.wav"  -o \
+            -iname "*.aiff" -o \
+            -iname "*.aif"  -o \
+            -iname "*.mp4"  -o \
+            -iname "*.ape"  -o \
+            -iname "*.wv"   -o \
+            -iname "*.spx" \
+        \) -print0 2>>"$LOG_ROOT/${STEP}-errors.log" | sort -z
+)
 
-args = ["find", os.getcwd(), "-type", "f", *EXCLUDES, "("]
-for i, e in enumerate(EXTS):
-    if i:
-        args.append("-o")
-    args += ["-iname", f"*.{e}"]
-args += [")", "-print0"]
-err_sink = open(ERRORS_LOG, "a")
-try:
-    r = subprocess.run(args, stdout=subprocess.PIPE, stderr=err_sink, check=False)
-finally:
-    err_sink.close()
-files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # sort -z
+total=${#files[@]}
+i=0
+last_dir=""
 
-total = len(files)
-last_dir = ""
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+for f in "${files[@]}"; do
 
-
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-for i, path in enumerate(files, 1):
-    progress(i, total)
-    label = os.path.relpath(path, os.getcwd())
-    current_dir = os.path.dirname(label) or "."
+    ((i++))
+    progress "$i" "$total"
+    label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
 
     # Album header on album change: clear the counter line, print the
     # album path, let the counter resume on the next line (stderr only)
-    if last_dir and current_dir != last_dir and is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % current_dir)
-    last_dir = current_dir
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$current_dir" >&2
+    fi
+    last_dir="$current_dir"
 
-    if path.lower().endswith(".flac"):
-        res = subprocess.run(["flac", "-s", "-t", path],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.PIPE, text=True, check=False)
-    else:
-        res = subprocess.run(
-            ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-f", "null", "-"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-            check=False)
-    rc = res.returncode
 
-    if rc == 0:
-        out_msg = f"OK   [{i}/{total}] {label}"
-        append(RUN_LOG, out_msg)
-        append(OKS_LOG, out_msg)
-    else:
-        flat = re.sub(r"\s+", " ",
-                      res.stderr.replace("\r", " ").replace("\n", " ")).strip()
-        out_msg = f"FAIL [{i}/{total}] {label}"
-        print()
-        print(out_msg)
-        append(RUN_LOG, out_msg)
-        append(FAILS_LOG, out_msg)
-        append(ERRORS_LOG,
-               f"[{i}/{total}] ERROR (exit {rc}): {label} :: {path} :: "
-               f"{flat or 'no stderr output'}")
+    case "${f,,}" in
+        *.flac)
+            err=$(flac -s -t "$f" 2>&1)
+            rc=$?
+            ;;
+        *)
+            err=$(ffmpeg -nostdin -v error -i "$f" -f null - 2>&1)
+            rc=$?
+            ;;
+    esac
 
-if is_tty:
-    sys.stderr.write("\n")
+    if [ $rc -eq 0 ]; then
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
+    else
+        flat=$(printf '%s\n' "$err" | tr '\r\n' ' ' | tr -s ' ')
+        out_msg="FAIL [$i/$total] $label"
+        echo ""
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
+        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
+    fi
+
+done
+printf '\n' >&2
 
 # 5. Count Results
-with open(RUN_LOG) as f:
-    run_text = f.read()
-ok_count = sum(1 for l in run_text.splitlines() if l.startswith("OK"))
-fail_count = sum(1 for l in run_text.splitlines() if l.startswith("FAIL"))
+ok_count=$(grep -a "^OK" "$RUN_LOG" 2>/dev/null | wc -l)
+fail_count=$(grep -a "^FAIL" "$RUN_LOG" 2>/dev/null | wc -l)
 
 # 6. Generate Summary Log
-with open(SUMMARY_LOG, "w") as f:
-    f.write("Step 10 Summary\n===============\n\n")
-    f.write(f"Step       : {STEP}\n")
-    f.write(f"Run Date   : {time.strftime('%c')}\n\n")
-    f.write(f"Processed  : {total}\n")
-    f.write(f"Passed     : {ok_count}\n")
-    f.write(f"Failed     : {fail_count}\n")
+{
+echo "Step 10 Summary"
+echo "=============="
+echo
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
 
 # 7. Terminal Output
-print()
-if os.path.getsize(ERRORS_LOG) > 0:
-    print("----------------------------------------")
-    print("Error Summary")
-    print("----------------------------------------")
-    lost_sync, eos = {}, {}
-    with open(ERRORS_LOG, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if "LOST_SYNC" in line:
-                idx = line.find(" :: ")
-                if idx > 0:
-                    temp = line[:idx]
-                    pos = temp.find("): ") + 3
-                    lost_sync[temp[pos:]] = True
-            elif "END_OF_STREAM" in line:
-                idx = line.find(" :: ")
-                if idx > 0:
-                    temp = line[:idx]
-                    pos = temp.find("): ") + 3
-                    eos[temp[pos:]] = True
-    if lost_sync:
-        print("LOST_SYNC")
-        print("----------")
-        for p in sorted(lost_sync):
-            print(p)
-    if eos:
-        if lost_sync:
-            print()
-        print("END_OF_STREAM")
-        print("----------")
-        for p in sorted(eos):
-            print(p)
+echo
+if [ -s "$ERRORS_LOG" ]; then
+    echo "----------------------------------------"
+    echo "Error Summary"
+    echo "----------------------------------------"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
+fi
 
-print()
-print("----------------------------------------")
-print(f"Processed: {total}  Passed: {ok_count}  Failed: {fail_count}")
-print("----------------------------------------")
-print("Step 10 – Final Integrity Test")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 10 – Final Integrity Test"
+echo "----------------------------------------"
 
 ```
---- Script Step 10 End ---
+--- Bash Script Step 10 End ---
 
 \ ---------------------------------------------------------------------------------------
 
@@ -4585,10 +4440,13 @@ Because artwork and tags are preserved, no follow-up artwork step is needed afte
 
 \ ---------------------------------------------------------------------------------------
 
---- Script for 15a Start ---
-```python
+--- Bash Script for 15a Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # 15a. Strip Problematic Metadata (SURGICAL — FLAC only)
 #   FLAC metadata blocks are individually editable in place.
@@ -4600,212 +4458,140 @@ Because artwork and tags are preserved, no follow-up artwork step is needed afte
 #   Conforming files are left completely unmodified (no rewrite, no mtime).
 #   ID3-prefixed FLACs and APPLICATION blocks are flagged for review.
 # ------------------------------------------------------------
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+mkdir -p "$LOG_ROOT"
+: > "$LOG_ROOT/step15a-errors.log"
+: > "$LOG_ROOT/step15a-review.log"
+: > "$LOG_ROOT/step15a-run.log"
 
-RUN_LOG = os.path.join(LOG_ROOT, "step15a-run.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, "step15a-errors.log")
-REVIEW_LOG = os.path.join(LOG_ROOT, "step15a-review.log")
-for path in (ERRORS_LOG, REVIEW_LOG, RUN_LOG):
-    open(path, "w").close()
+# Software Preflight: fail loudly if a required tool is missing
+if ! command -v metaflac >/dev/null 2>&1; then
+    echo "ERROR: metaflac is not installed. Install the flac package and re-run (see Requirements)." >&2
+    exit 1
+fi
 
+mapfile -d '' files < <(
+    find "$PWD" -type f ! -ipath '*/Ignore/*' -name "*.flac" -print0 | sort -z
+)
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+total=${#files[@]}
+i=0
+last_dir=""
+changed=0
+skipped=0
+failed=0
 
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
-def screen_and_log(msg):
-    print(msg, flush=True)
-    append(RUN_LOG, msg)
+for f in "${files[@]}"; do
+    i=$((i+1))
+    progress "$i" "$total"
+    # Album header on folder change: clear the counter line, print the
+    # album path, let the counter resume on the next line (stderr only)
+    hdr="$(dirname "${f#"$PWD"/}")"
+    if [[ -n "$last_dir" && "$hdr" != "$last_dir" ]]; then
+        printf '\r\033[K── %s ──\n' "$hdr" >&2
+    fi
+    last_dir="$hdr"
 
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-if shutil.which("metaflac") is None:
-    print("ERROR: metaflac is not installed. Install the flac package and "
-          "re-run (see Requirements).", file=sys.stderr)
-    keep_open_on_error(1)
-
-r = subprocess.run(["find", os.getcwd(), "-type", "f", "!",
-                    "-ipath", "*/Ignore/*", "-name", "*.flac", "-print0"],
-                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                   check=False)
-files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # sort -z
-
-total = len(files)
-last_dir = ""
-changed = skipped = failed = 0
-
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
-
-
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-def block_types(listing):
-    """Return the set of block type names present in a metaflac --list dump."""
-    types = set()
-    for m in re.finditer(r"type: \d+ \((\w+)\)", listing):
-        types.add(m.group(1))
-    return types
-
-
-def padding_total(listing):
-    """Sum of PADDING block lengths from a metaflac --list dump."""
-    total = 0
-    in_pad = False
-    for line in listing.splitlines():
-        if "(PADDING)" in line:
-            in_pad = True
-            continue
-        if in_pad and "length:" in line:
-            digits = re.sub(r"[^0-9]", "", line.split("length:")[1])
-            total += int(digits or 0)
-            in_pad = False
-    return total
-
-
-for i, path in enumerate(files, 1):
-    progress(i, total)
-    hdr = os.path.dirname(os.path.relpath(path, os.getcwd()))
-    if last_dir and hdr != last_dir and is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % hdr)
-    last_dir = hdr
-
-    artist = os.path.basename(os.path.dirname(os.path.dirname(path)))
-    album = os.path.basename(os.path.dirname(path))
-    track = os.path.basename(path)[:-len(".flac")]
-    label = f"{artist}-{album}-{track}"
+    artist=$(basename "$(dirname "$(dirname "$f")")")
+    album=$(basename "$(dirname "$f")")
+    track=$(basename "$f" .flac)
+    label="$artist-$album-$track"
 
     # ID3 junk prefix check (moOde/flac tooling dislike ID3 on FLAC)
-    try:
-        with open(path, "rb") as f:
-            if f.read(3) == b"ID3":
-                print(f"REVIEW [{i}/{total}] {label} :: ID3-prefixed FLAC",
-                      flush=True)
-                append(RUN_LOG, f"REVIEW [{i}/{total}] {label} :: ID3-prefixed FLAC")
-                append(REVIEW_LOG, f"[{i}/{total}] REVIEW: {label} :: {path} :: "
-                                   "ID3v2 prefix detected — strip manually if "
-                                   "moOde misbehaves")
-    except OSError:
-        pass
+    if [ "$(head -c 3 "$f" 2>/dev/null)" = "ID3" ]; then
+        echo "REVIEW [$i/$total] $label :: ID3-prefixed FLAC" | tee -a "$LOG_ROOT/step15a-run.log"
+        echo "[$i/$total] REVIEW: $label :: $f :: ID3v2 prefix detected — strip manually if moOde misbehaves" \
+            >> "$LOG_ROOT/step15a-review.log"
+    fi
 
-    listing_r = subprocess.run(["metaflac", "--list", path],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, text=True,
-                               check=False)
-    listing = listing_r.stdout
-    if not listing.strip():
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR: {label} :: {path} :: "
-                           "metaflac could not read block list")
-        failed += 1
+    listing=$(metaflac --list "$f" 2>/dev/null)
+    if [ -z "$listing" ]; then
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step15a-run.log"
+        echo "[$i/$total] ERROR: $label :: $f :: metaflac could not read block list" \
+            >> "$LOG_ROOT/step15a-errors.log"
+        failed=$((failed+1))
         continue
+    fi
 
-    types = block_types(listing)
-    has_seek = "SEEKTABLE" in types
-    has_cuesheet = "CUESHEET" in types
-    has_application = "APPLICATION" in types
-    pad_total = padding_total(listing)
+    has_seek=$(grep -qc 'type: [0-9]* (SEEKTABLE)' <<< "$listing" && echo 1 || echo 0)
+    has_cuesheet=$(grep -qc 'type: [0-9]* (CUESHEET)' <<< "$listing" && echo 1 || echo 0)
+    has_application=$(grep -qc 'type: [0-9]* (APPLICATION)' <<< "$listing" && echo 1 || echo 0)
+    pad_total=$(awk '/\(PADDING\)/{p=1; next} p && /length:/{gsub(/[^0-9]/,"",$2); s+=$2; p=0} END{print s+0}' <<< "$listing")
 
-    if has_application:
-        append(REVIEW_LOG, f"[{i}/{total}] REVIEW: {label} :: {path} :: "
-                           "APPLICATION metadata block present (left in place)")
+    [ "$has_application" -eq 1 ] && \
+        echo "[$i/$total] REVIEW: $label :: $f :: APPLICATION metadata block present (left in place)" \
+            >> "$LOG_ROOT/step15a-review.log"
 
     # Padding is informational only — never rewritten. Excess or missing
     # padding is harmless; it just costs a little disk space or future edit
     # speed. Only flag padding that is PRESENT but non-standard (not the
     # 8192 bytes metaflac writes when editing); a file with no PADDING block
     # at all is normal and stays silent.
-    if pad_total not in (0, 8192):
-        append(REVIEW_LOG, f"[{i}/{total}] REVIEW: {label} :: {path} :: "
-                           f"padding is {pad_total} bytes (left in place)")
+    if [ "$pad_total" -ne 0 ] && [ "$pad_total" -ne 8192 ]; then
+        echo "[$i/$total] REVIEW: $label :: $f :: padding is $pad_total bytes (left in place)" \
+            >> "$LOG_ROOT/step15a-review.log"
+    fi
 
-    cmds = []
-    if has_seek:
-        cmds.append("SEEKTABLE")
-    if has_cuesheet:
-        cmds.append("CUESHEET")
+    cmds=()
+    [ "$has_seek" -eq 1 ]      && cmds+=(SEEKTABLE)
+    [ "$has_cuesheet" -eq 1 ]  && cmds+=(CUESHEET)
 
-    if not cmds:
-        skipped += 1
-        append(RUN_LOG, f"SAME [{i}/{total}] {label}")
+    if [ ${#cmds[@]} -eq 0 ]; then
+        skipped=$((skipped+1))
+        echo "SAME [$i/$total] $label" >> "$LOG_ROOT/step15a-run.log"
         continue
+    fi
 
-    detail = ""
-    if has_seek:
-        detail = "seektable"
-    if has_cuesheet:
-        detail = (detail + "+" if detail else "") + "cuesheet"
+    detail=""
+    [ "$has_seek" -eq 1 ] && detail="seektable"
+    [ "$has_cuesheet" -eq 1 ] && detail="${detail:+$detail+}cuesheet"
 
     # metaflac forbids mixing major (--remove) and shorthand (--add-padding)
     # operations in one call, so removals run as their own single call.
-    r = subprocess.run(
-        ["metaflac", *[f"--block-type={c}" for c in cmds], "--remove", path],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-        check=False)
-    verify = subprocess.run(["metaflac", "--list", path],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True, check=False)
-    if r.returncode != 0 or not verify.stdout.strip():
-        flat = re.sub(r"\s+", " ", r.stderr).strip()
-        print(f"FAIL [{i}/{total}] {label}", flush=True)
-        append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {r.returncode}): {label} "
-                           f":: {path} :: {flat or 'no stderr output'}")
-        failed += 1
+    err=""
+    rc=0
+    err=$(metaflac --remove "${cmds[@]/#/--block-type=}" "$f" 2>&1 >/dev/null) || rc=$?
+    if [ $rc -ne 0 ] || [ -z "$(metaflac --list "$f" 2>/dev/null)" ]; then
+        flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+        echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step15a-run.log"
+        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" \
+            >> "$LOG_ROOT/step15a-errors.log"
+        failed=$((failed+1))
         continue
+    fi
 
-    changed += 1
-    print(f"FIXED [{i}/{total}] {label} :: {detail}", flush=True)
-    append(RUN_LOG, f"FIXED [{i}/{total}] {label} :: {detail}")
+    changed=$((changed+1))
+    echo "FIXED [$i/$total] $label :: $detail" | tee -a "$LOG_ROOT/step15a-run.log"
 
-if is_tty:
-    sys.stderr.write("\n")
-print()
-print("----------------------------------------")
-print("15a. Strip Problematic Metadata (surgical)")
-print(f"Total: {total}   Fixed: {changed}   Already clean: {skipped}   "
-      f"Failed: {failed}")
-review_n = 0
-if os.path.getsize(REVIEW_LOG) > 0:
-    with open(REVIEW_LOG) as f:
-        review_n = len(f.read().splitlines())
-print(f"Review flags: {review_n}  (see {REVIEW_LOG})")
-print("----------------------------------------")
+done
 
+printf '\n' >&2
+echo
+echo "----------------------------------------"
+echo "15a. Strip Problematic Metadata (surgical)"
+echo "Total: $total   Fixed: $changed   Already clean: $skipped   Failed: $failed"
+echo "Review flags: $( [ -s "$LOG_ROOT/step15a-review.log" ] && wc -l < "$LOG_ROOT/step15a-review.log" || echo 0 )  (see $LOG_ROOT/step15a-review.log)"
+echo "----------------------------------------"
 ```
---- Script for 15a End ---
+--- Bash Script for 15a End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -4891,10 +4677,13 @@ This step (folder covers only — audio files are never touched):
 
 \---------------------------------------------------------------------------------------
 
---- Script for 15b Start ---
-```python
+--- Bash Script for 15b Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # 15b. Consolidate Album Artwork -> one Cover.jpg per directory
 #   Per-directory rule (moOde coverart.php priority order):
@@ -4904,234 +4693,167 @@ This step (folder covers only — audio files are never touched):
 #       logged to step15b-review.log (nothing is deleted)
 #   Byte-identical renames never invalidate existing embeds.
 # ------------------------------------------------------------
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+mkdir -p "$LOG_ROOT"
+: > "$LOG_ROOT/step15b-errors.log"
+: > "$LOG_ROOT/step15b-review.log"
+: > "$LOG_ROOT/step15b-run.log"
 
-RUN_LOG = os.path.join(LOG_ROOT, "step15b-run.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, "step15b-errors.log")
-REVIEW_LOG = os.path.join(LOG_ROOT, "step15b-review.log")
-for path in (ERRORS_LOG, REVIEW_LOG, RUN_LOG):
-    open(path, "w").close()
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def screen_and_log(msg):
-    print(msg, flush=True)
-    append(RUN_LOG, msg)
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-for tool in ("ffmpeg", "find"):
-    if shutil.which(tool) is None:
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+# Software Preflight: fail loudly if a required tool is missing
+for tool in ffmpeg find; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
 # Moode-standard folder-level cover priority (matches moOde's coverart.php parseFolder())
-COVER_CANDIDATES = [
-    "Cover.jpg", "cover.jpg", "Cover.jpeg", "cover.jpeg", "Cover.png", "cover.png",
-    "Folder.jpg", "folder.jpg", "Folder.jpeg", "folder.jpeg", "Folder.png",
-    "folder.png",
-]
+COVER_CANDIDATES=(
+    "Cover.jpg" "cover.jpg" "Cover.jpeg" "cover.jpeg" "Cover.png" "cover.png"
+    "Folder.jpg" "folder.jpg" "Folder.jpeg" "folder.jpeg" "Folder.png" "folder.png"
+)
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+# Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
+# Dirs that contain any image file (Ignore dirs excluded)
+mapfile -d '' dirs < <(
+    find "$PWD" -type d \
+        ! -ipath '*/Ignore/*' ! -ipath '*/Ignore' ! -iname 'Ignore' \
+        -print0 | while IFS= read -r -d '' d; do
+        if compgen -G "$d/*.jpg" >/dev/null || compgen -G "$d/*.jpeg" >/dev/null || \
+           compgen -G "$d/*.JPG" >/dev/null || compgen -G "$d/*.JPEG" >/dev/null || \
+           compgen -G "$d/*.png" >/dev/null || compgen -G "$d/*.PNG" >/dev/null || \
+           compgen -G "$d/*.tiff" >/dev/null || compgen -G "$d/*.tif" >/dev/null || \
+           compgen -G "$d/*.TIFF" >/dev/null || compgen -G "$d/*.TIF" >/dev/null; then
+            printf '%s\0' "$d"
+        fi
+    done
+)
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
+total=${#dirs[@]}
+i=0
+renamed=0
+converted=0
+already_ok=0
+failed=0
 
+for d in "${dirs[@]}"; do
+    i=$((i+1))
+    printf '\r\033[K── %s ──\n' "${d#"$PWD"/}" >&2
+    progress "$i" "$total"
 
-IMG_EXTS = (".jpg", ".jpeg", ".png", ".tiff", ".tif")
-
-
-def images_in(directory):
-    """Case-insensitive image listing at maxdepth 1, sorted."""
-    try:
-        names = os.listdir(directory)
-    except OSError:
-        return []
-    out = sorted(os.path.join(directory, n) for n in names
-                 if os.path.isfile(os.path.join(directory, n))
-                 and os.path.splitext(n)[1].lower() in IMG_EXTS)
-    return out
-
-
-def find_image_dirs():
-    r = subprocess.run(
-        ["find", os.getcwd(), "-type", "d",
-         "!", "-ipath", "*/Ignore/*", "!", "-ipath", "*/Ignore",
-         "!", "-iname", "Ignore", "-print0"],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-    all_dirs = [p.decode("utf-8", "surrogateescape")
-                for p in r.stdout.split(b"\0") if p]
-    with_images = []
-    for d in all_dirs:
-        try:
-            names = os.listdir(d)
-        except OSError:
-            continue
-        if any(os.path.isfile(os.path.join(d, n))
-               and os.path.splitext(n)[1].lower() in IMG_EXTS
-               for n in names):
-            with_images.append(d)
-    with_images.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))
-    return with_images
-
-
-dirs = find_image_dirs()
-total = len(dirs)
-renamed = converted = already_ok = failed = 0
-
-for i, d in enumerate(dirs, 1):
-    if is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % os.path.relpath(d, os.getcwd()))
-    progress(i, total)
-
-    parent_dir = os.path.dirname(d)
-    artist = os.path.basename(parent_dir) if parent_dir else ""
-    album = os.path.basename(d)
-    label = f"{artist}-{album}"
-    target = os.path.join(d, "Cover.jpg")
+    parent_dir="${d%/*}"
+    artist="${parent_dir##*/}"
+    album="${d##*/}"
+    label="$artist-$album"
+    target="$d/Cover.jpg"
 
     # Pick the highest-priority existing cover (moOde order)
-    best = ""
-    for name in COVER_CANDIDATES:
-        candidate = os.path.join(d, name)
-        if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
-            best = candidate
+    best=""
+    for name in "${COVER_CANDIDATES[@]}"; do
+        if [ -s "$d/$name" ]; then
+            best="$d/$name"
             break
+        fi
+    done
 
     # No standard candidate? Promote the alphabetically-first stray image.
-    if not best:
-        strays = [p for p in images_in(d)]
-        if strays:
-            best = strays[0]
-            append(REVIEW_LOG, f"[{i}/{total}] REVIEW: {label} :: promoting "
-                               f"non-standard cover {os.path.basename(best)}")
-        else:
+    if [ -z "$best" ]; then
+        stray=$(find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.tiff' -o -iname '*.tif' \) | sort | head -1)
+        if [ -n "$stray" ]; then
+            best="$stray"
+            echo "[$i/$total] REVIEW: $label :: promoting non-standard cover $(basename "$stray")" \
+                >> "$LOG_ROOT/step15b-review.log"
+        else
             continue
+        fi
+    fi
 
-    if os.path.abspath(best) == os.path.abspath(target):
-        already_ok += 1
-        append(RUN_LOG, f"SAME  [{i}/{total}] {label}")
-    else:
-        ext = os.path.splitext(best)[1].lstrip(".")
-        if ext.lower() in ("jpg", "jpeg"):
-            try:
-                if os.path.basename(best) == os.path.basename(target) or \
-                        os.path.basename(best) == "cover.jpg":
-                    tmp = os.path.join(d, ".cover-tmp.jpg")
-                    shutil.move(best, tmp)
-                    shutil.move(tmp, target)
-                else:
-                    shutil.move(best, target)
-            except OSError:
-                failed += 1
-                append(ERRORS_LOG, f"[{i}/{total}] ERROR: {label} :: rename failed")
-                continue
-            renamed += 1
-            screen_and_log(f"RENAMED [{i}/{total}] {label} :: "
-                           f"{os.path.basename(best)} -> Cover.jpg")
-        elif ext.lower() == "png":
-            r = subprocess.run(
-                ["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", best,
-                 "-q:v", "2", target],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                check=False)
-            if r.returncode != 0 or not os.path.isfile(target) or \
-                    os.path.getsize(target) == 0:
-                flat = re.sub(r"\s+", " ", r.stderr).strip()
-                print(f"FAIL [{i}/{total}] {label}", flush=True)
-                append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-                append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {r.returncode}, "
-                                   f"png->jpg convert): {label} :: {best} :: "
-                                   f"{flat or 'no stderr output'}")
-                failed += 1
-                if os.path.exists(target):
-                    os.unlink(target)
-                continue
-            converted += 1
-            screen_and_log(f"CONVERTED [{i}/{total}] {label} :: "
-                           f"{os.path.basename(best)} -> Cover.jpg (png->jpg, q:v 2)")
-        elif ext.lower() in ("tiff", "tif"):
-            r = subprocess.run(
-                ["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", best,
-                 "-q:v", "2", target],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                check=False)
-            if r.returncode != 0 or not os.path.isfile(target) or \
-                    os.path.getsize(target) == 0:
-                flat = re.sub(r"\s+", " ", r.stderr).strip()
-                print(f"FAIL [{i}/{total}] {label}", flush=True)
-                append(RUN_LOG, f"FAIL [{i}/{total}] {label}")
-                append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {r.returncode}, "
-                                   f"tiff->jpg convert): {label} :: {best} :: "
-                                   f"{flat or 'no stderr output'}")
-                failed += 1
-                if os.path.exists(target):
-                    os.unlink(target)
-                continue
-            # TIFF cannot be used by moOde and would be flagged as a stray
-            # by the SHA-512 guide's audit, so the source is consolidated
-            # (removed) once its content lives in Cover.jpg.
-            os.unlink(best)
-            converted += 1
-            screen_and_log(f"CONVERTED [{i}/{total}] {label} :: "
-                           f"{os.path.basename(best)} -> Cover.jpg "
-                           "(tiff->jpg, q:v 2; source tiff removed)")
+    if [ "$best" = "$target" ]; then
+        already_ok=$((already_ok+1))
+        echo "SAME  [$i/$total] $label" >> "$LOG_ROOT/step15b-run.log"
+    else
+        case "${best##*.}" in
+            jpg|jpeg|JPG|JPEG)
+                if [ "$(basename "$best")" = "$(basename "$target")" ] || [ "$(basename "$best")" = "cover.jpg" ]; then
+                    mv -f "$best" "$d/.cover-tmp.jpg" && mv -f "$d/.cover-tmp.jpg" "$target" || { failed=$((failed+1)); echo "[$i/$total] ERROR: $label :: rename failed" >> "$LOG_ROOT/step15b-errors.log"; continue; }
+                else
+                    mv -f "$best" "$target" || { failed=$((failed+1)); echo "[$i/$total] ERROR: $label :: rename failed" >> "$LOG_ROOT/step15b-errors.log"; continue; }
+                fi
+                renamed=$((renamed+1))
+                echo "RENAMED [$i/$total] $label :: $(basename "$best") -> Cover.jpg" | tee -a "$LOG_ROOT/step15b-run.log"
+                ;;
+            png|PNG)
+                err=$(ffmpeg -y -nostdin -v error -i "$best" -q:v 2 "$target" 2>&1)
+                rc=$?
+                if [ $rc -ne 0 ] || [ ! -s "$target" ]; then
+                    flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                    echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step15b-run.log"
+                    echo "[$i/$total] ERROR (exit $rc, png->jpg convert): $label :: $best :: ${flat:-no stderr output}" \
+                        >> "$LOG_ROOT/step15b-errors.log"
+                    failed=$((failed+1))
+                    rm -f "$target"
+                    continue
+                fi
+                converted=$((converted+1))
+                echo "CONVERTED [$i/$total] $label :: $(basename "$best") -> Cover.jpg (png->jpg, q:v 2)" | tee -a "$LOG_ROOT/step15b-run.log"
+                ;;
+            tiff|tif|TIFF|TIF)
+                err=$(ffmpeg -y -nostdin -v error -i "$best" -q:v 2 "$target" 2>&1)
+                rc=$?
+                if [ $rc -ne 0 ] || [ ! -s "$target" ]; then
+                    flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                    echo "FAIL [$i/$total] $label" | tee -a "$LOG_ROOT/step15b-run.log"
+                    echo "[$i/$total] ERROR (exit $rc, tiff->jpg convert): $label :: $best :: ${flat:-no stderr output}" \
+                        >> "$LOG_ROOT/step15b-errors.log"
+                    failed=$((failed+1))
+                    rm -f "$target"
+                    continue
+                fi
+                # TIFF cannot be used by moOde and would be flagged as a stray
+                # by the SHA-512 guide's audit, so the source is consolidated
+                # (removed) once its content lives in Cover.jpg.
+                rm -f "$best"
+                converted=$((converted+1))
+                echo "CONVERTED [$i/$total] $label :: $(basename "$best") -> Cover.jpg (tiff->jpg, q:v 2; source tiff removed)" | tee -a "$LOG_ROOT/step15b-run.log"
+                ;;
+        esac
+    fi
 
     # Every other image in the dir is logged, never deleted
-    for extra in images_in(d):
-        if os.path.abspath(extra) == os.path.abspath(target):
-            continue
-        append(REVIEW_LOG, f"[{i}/{total}] REVIEW: {label} :: extra cover left "
-                           f"in place: {os.path.basename(extra)}")
+    while IFS= read -r extra; do
+        [ "$extra" = "$target" ] && continue
+        echo "[$i/$total] REVIEW: $label :: extra cover left in place: $(basename "$extra")" \
+            >> "$LOG_ROOT/step15b-review.log"
+    done < <(find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.tiff' -o -iname '*.tif' \) | sort)
 
-if is_tty:
-    sys.stderr.write("\n")
-print()
-print("----------------------------------------")
-print("15b. Consolidate Album Artwork -> Cover.jpg")
-print(f"Dirs: {total}   Already Cover.jpg: {already_ok}   Renamed: {renamed}   "
-      f"Converted: {converted}   Failed: {failed}")
-with open(REVIEW_LOG) as f:
-    review_n = len(f.read().splitlines())
-print(f"Extras left in place: {review_n}  (see {REVIEW_LOG})")
-print("----------------------------------------")
+done
 
+printf '\n' >&2
+echo
+echo "----------------------------------------"
+echo "15b. Consolidate Album Artwork -> Cover.jpg"
+echo "Dirs: $total   Already Cover.jpg: $already_ok   Renamed: $renamed   Converted: $converted   Failed: $failed"
+echo "Extras left in place: $(wc -l < "$LOG_ROOT/step15b-review.log")  (see $LOG_ROOT/step15b-review.log)"
+echo "----------------------------------------"
 ```
---- Script for 15b End ---
+--- Bash Script for 15b End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -5212,317 +4934,229 @@ This step:
 
 \---------------------------------------------------------------------------------------
 
---- Script for 15c Start ---
-```python
+--- Bash Script for 15c Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # 15c. Update Album Artwork Embeds (FLAC, MP3, M4A, MP4)
 # ------------------------------------------------------------
-import os
-import re
-import subprocess
-import sys
-import tempfile
-import time
-from shutil import which as shutil_which
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+mkdir -p "$LOG_ROOT"
+: > "$LOG_ROOT/step15c-errors.log"
+: > "$LOG_ROOT/step15c-review.log"
 
-ERRORS_LOG = os.path.join(LOG_ROOT, "step15c-errors.log")
-REVIEW_LOG = os.path.join(LOG_ROOT, "step15c-review.log")
-RUN_LOG = os.path.join(LOG_ROOT, "step15c-run.log")
-for path in (ERRORS_LOG, REVIEW_LOG, RUN_LOG):
-    open(path, "w").close()
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ERROR: ffmpeg is required to process non-FLAC formats."
+    exit 1
+fi
 
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def out_and_log(msg):
-    print(msg, flush=True)
-    append(RUN_LOG, msg)
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-if shutil_which("ffmpeg") is None:
-    print("ERROR: ffmpeg is required to process non-FLAC formats.")
-    keep_open_on_error(1)
-
-HAS_METAFLAC = shutil_which("metaflac") is not None
+HAS_METAFLAC=0
+if command -v metaflac >/dev/null 2>&1; then
+    HAS_METAFLAC=1
+fi
 
 # Moode-standard folder-level cover file priority (matches moOde's coverart.php parseFolder())
-COVER_CANDIDATES = [
-    "Cover.jpg", "cover.jpg", "Cover.jpeg", "cover.jpeg", "Cover.png",
-    "cover.png", "Folder.jpg", "folder.jpg", "Folder.jpeg", "folder.jpeg",
-    "Folder.png", "folder.png",
-]
+COVER_CANDIDATES=(
+    "Cover.jpg" "cover.jpg" "Cover.jpeg" "cover.jpeg" "Cover.png" "cover.png"
+    "Folder.jpg" "folder.jpg" "Folder.jpeg" "folder.jpeg" "Folder.png" "folder.png"
+)
 
-AUDIO_EXTS = ["flac", "mp3", "m4a", "mp4", "ogg", "opus", "aiff", "aif",
-              "ape", "dsf"]
+find_cover_art() {
+    local dir="$1"
+    for name in "${COVER_CANDIDATES[@]}"; do
+        if [ -s "$dir/$name" ]; then
+            echo "$dir/$name"
+            return 0
+        fi
+    done
+    return 1
+}
 
+mapfile -d '' dirs < <(
+    find "$PWD" -type f ! -ipath '*/Ignore/*' \( \
+        -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
+        -iname "*.mp4"  -o -iname "*.ogg" -o -iname "*.opus" -o \
+        -iname "*.aiff" -o -iname "*.aif" -o -iname "*.ape"  -o \
+        -iname "*.dsf" \
+    \) -printf '%h\0' | sort -u -z
+)
 
-def shutil_which(name):
-    from shutil import which
-    return which(name)
+total=${#dirs[@]}
+i=0
 
+if [ "$total" -eq 0 ]; then
+    echo "No directories with supported audio files found."
+    exit 0
+fi
 
-def find_cover_art(directory):
-    for name in COVER_CANDIDATES:
-        candidate = os.path.join(directory, name)
-        if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
-            return candidate
-    return ""
+for d in "${dirs[@]}"; do
+    i=$((i + 1))
+    printf '── %s ──\n' "${d#"$PWD"/}" >&2
 
+    parent_dir="${d%/*}"
+    artist="${parent_dir##*/}"
+    album="${d##*/}"
+    label="$artist - $album"
+    error_found=0
 
-def files_equal(a, b):
-    if not (os.path.isfile(a) and os.path.isfile(b)):
-        return False
-    if os.path.getsize(a) != os.path.getsize(b):
-        return False
-    with open(a, "rb") as fa, open(b, "rb") as fb:
-        return fa.read() == fb.read()
+    art_file=$(find_cover_art "$d")
 
-
-def probe_dims(path):
-    r = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", path],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        check=False)
-    return r.stdout.strip()
-
-
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
-
-
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
-
-
-def build_find():
-    args = ["find", os.getcwd(), "-type", "f", "!", "-ipath", "*/Ignore/*", "("]
-    for i, e in enumerate(AUDIO_EXTS):
-        if i:
-            args.append("-o")
-        args += ["-iname", f"*.{e}"]
-    args += [")", "-printf", "%h\\0"]
-    return args
-
-
-r = subprocess.run(build_find(), stdout=subprocess.PIPE,
-                   stderr=subprocess.DEVNULL, check=False)
-dirs = sorted({p.decode("utf-8", "surrogateescape")
-               for p in r.stdout.split(b"\0") if p})
-total = len(dirs)
-
-if total == 0:
-    print("No directories with supported audio files found.")
-    sys.exit(0)
-
-for i, d in enumerate(dirs, 1):
-    if is_tty:
-        sys.stderr.write("── %s ──\n" % os.path.relpath(d, os.getcwd()))
-    progress(i, total)
-
-    parent_dir = os.path.dirname(d)
-    artist = os.path.basename(parent_dir) if parent_dir else ""
-    album = os.path.basename(d)
-    label = f"{artist} - {album}"
-    error_found = False
-
-    art_file = find_cover_art(d)
-
-    if not art_file:
-        out_and_log(f"ERROR [{i}/{total}] {label} :: Missing standard image file")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR: {label} :: No Moode-standard "
-                           f"cover image found (checked: {' '.join(COVER_CANDIDATES)})")
+    if [ -z "$art_file" ]; then
+        echo "ERROR [$i/$total] $label :: Missing standard image file"
+        echo "[$i/$total] ERROR: $label :: No Moode-standard cover image found (checked: ${COVER_CANDIDATES[*]})" >> "$LOG_ROOT/step15c-errors.log"
         continue
+    fi
 
-    # Case-insensitive audio listing, unique + sorted
-    audio_files = []
-    try:
-        for name in os.listdir(d):
-            full = os.path.join(d, name)
-            if os.path.isfile(full) and \
-                    os.path.splitext(name)[1].lstrip(".").lower() in AUDIO_EXTS:
-                audio_files.append(full)
-    except OSError:
-        pass
-    audio_files = sorted(set(audio_files))
+    shopt -s nullglob nocaseglob
+    audio_files=(
+        "$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.mp4 \
+        "$d"/*.ogg  "$d"/*.opus "$d"/*.aiff "$d"/*.aif \
+        "$d"/*.ape  "$d"/*.dsf
+    )
+    shopt -u nullglob nocaseglob
 
-    if not audio_files:
-        out_and_log(f"ERROR [{i}/{total}] {label} :: No audio files found")
-        append(ERRORS_LOG, f"[{i}/{total}] ERROR: {label} :: Directory has no "
-                           "supported audio files")
+    mapfile -t audio_files < <(printf "%s\n" "${audio_files[@]}" | sort -u)
+
+    if [ ${#audio_files[@]} -eq 0 ]; then
+        echo "ERROR [$i/$total] $label :: No audio files found"
+        echo "[$i/$total] ERROR: $label :: Directory has no supported audio files" >> "$LOG_ROOT/step15c-errors.log"
         continue
+    fi
 
-    processed_any = False
-    unchanged = kept = upgraded = 0
+    processed_any=0
+    unchanged=0
+    kept=0
+    upgraded=0
 
-    for f in audio_files:
-        fname = os.path.basename(f)
-        ext_lower = os.path.splitext(fname)[1].lstrip(".").lower()
+    for f in "${audio_files[@]}"; do
+        fname=$(basename "$f")
+        ext="${fname##*.}"
+        ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
 
-        if ext_lower not in ("flac", "mp3", "m4a", "mp4"):
-            out_and_log(f"SKIP [{i}/{total}] {label} :: {fname} ({ext_lower} "
-                        "artwork embed not supported; file left unchanged)")
-            continue
-        processed_any = True
+        case "$ext_lower" in
+            flac|mp3|m4a|mp4) ;;
+            *)
+                echo "SKIP [$i/$total] $label :: ${f##*/} ($ext_lower artwork embed not supported; file left unchanged)"
+                continue
+                ;;
+        esac
+        processed_any=1
 
         # Extract the currently embedded artwork (if any) to a temp file
-        emb_suffix = os.path.splitext(art_file)[1]
-        fd, emb = tempfile.mkstemp(prefix="step15c-emb.", suffix=emb_suffix,
-                                   dir=LOG_ROOT)
-        os.close(fd)
-        if os.path.exists(emb):
-            os.unlink(emb)
-        has_emb = False
-        if ext_lower == "flac" and HAS_METAFLAC:
-            r = subprocess.run(
-                ["metaflac", f"--export-picture-to={emb}", f],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                check=False)
-            has_emb = r.returncode == 0 and os.path.isfile(emb) and \
-                os.path.getsize(emb) > 0
-        else:
-            r = subprocess.run(
-                ["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", f,
-                 "-map", "0:v:0", "-c", "copy", "-update", "1", "-f",
-                 "image2", emb],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                check=False)
-            has_emb = r.returncode == 0 and os.path.isfile(emb) and \
-                os.path.getsize(emb) > 0
+        emb=$(mktemp "$LOG_ROOT/step15c-emb.XXXXXX.${art_file##*.}")
+        rm -f "$emb" 2>/dev/null
+        has_emb=0
+        if [[ "$ext_lower" == "flac" && $HAS_METAFLAC -eq 1 ]]; then
+            if metaflac --export-picture-to="$emb" "$f" >/dev/null 2>&1 && [ -s "$emb" ]; then
+                has_emb=1
+            fi
+        else
+            if ffmpeg -y -nostdin -v error -i "$f" -map 0:v:0 -c copy -update 1 -f image2 "$emb" >/dev/null 2>&1 && [ -s "$emb" ]; then
+                has_emb=1
+            fi
+        fi
 
         # Resolution gate: only a STRICTLY higher-resolution folder cover may
         # replace an existing embed. Byte-identical or equal/lower-res covers
         # leave the file untouched.
-        do_embed = False
-        if not has_emb:
-            do_embed = True
-        elif files_equal(emb, art_file):
-            pass
-        else:
-            emb_dims = probe_dims(emb)
-            art_dims = probe_dims(art_file)
-            emb_w, _, emb_h = emb_dims.partition("x")
-            art_w, _, art_h = art_dims.partition("x")
-            if not (emb_w.isdigit() and emb_h.isdigit() and
-                    art_w.isdigit() and art_h.isdigit()):
-                append(REVIEW_LOG, f"[{i}/{total}] REVIEW: {label} :: {fname} :: "
-                                   "could not compare resolutions "
-                                   f"(emb={emb_dims} cover={art_dims}) — kept existing")
-                kept += 1
-            elif int(art_w) * int(art_h) > int(emb_w) * int(emb_h):
-                do_embed = True
-            else:
-                kept += 1
-                append(REVIEW_LOG, f"[{i}/{total}] KEPT: {label} :: {fname} :: "
-                                   f"embedded {emb_dims} >= cover {art_dims} — "
-                                   "existing artwork kept")
-        if os.path.exists(emb):
-            os.unlink(emb)
+        do_embed=0
+        if [ $has_emb -eq 0 ]; then
+            do_embed=1
+        elif cmp -s "$emb" "$art_file"; then
+            :
+        else
+            emb_dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$emb" 2>/dev/null)
+            art_dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$art_file" 2>/dev/null)
+            emb_w=${emb_dims%x*};      emb_h=${emb_dims#*x}
+            art_w=${art_dims%x*};      art_h=${art_dims#*x}
+            case "$emb_w$emb_h$art_w$art_h" in *[!0-9]*|"") 
+                echo "[$i/$total] REVIEW: $label :: ${f##*/} :: could not compare resolutions (emb=$emb_dims cover=$art_dims) — kept existing" \
+                    >> "$LOG_ROOT/step15c-review.log"
+                kept=$((kept+1))
+                ;;
+            *)  if [ $((art_w * art_h)) -gt $((emb_w * emb_h)) ]; then
+                    do_embed=1
+                else
+                    kept=$((kept+1))
+                    echo "[$i/$total] KEPT: $label :: ${f##*/} :: embedded ${emb_dims} >= cover ${art_dims} — existing artwork kept" \
+                        >> "$LOG_ROOT/step15c-review.log"
+                fi
+                ;;
+            esac
+        fi
+        rm -f "$emb" 2>/dev/null
 
-        if not do_embed:
-            unchanged += 1
+        if [ $do_embed -eq 0 ]; then
+            unchanged=$((unchanged+1))
             continue
+        fi
 
-        if ext_lower == "flac" and HAS_METAFLAC:
-            r = subprocess.run(
-                ["metaflac", "--remove", "--block-type=PICTURE", f],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                check=False)
-            if r.returncode != 0:
-                error_found = True
-                rmflat = re.sub(r"\s+", " ", r.stderr).strip()
-                append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {r.returncode}, "
-                                   f"remove-picture): {label} :: {fname} :: "
-                                   f"{rmflat or 'no stderr output'}")
+        if [[ "$ext_lower" == "flac" && $HAS_METAFLAC -eq 1 ]]; then
+            rmerr=$(metaflac --remove --block-type=PICTURE "$f" 2>&1)
+            rmrc=$?
+            if [ $rmrc -ne 0 ]; then
+                error_found=1
+                rmflat=$(echo "$rmerr" | tr '\n' ' ' | tr -s ' ')
+                echo "[$i/$total] ERROR (exit $rmrc, remove-picture): $label :: ${f##*/} :: ${rmflat:-no stderr output}" \
+                    >> "$LOG_ROOT/step15c-errors.log"
+            fi
 
-            r = subprocess.run(
-                ["metaflac", f"--import-picture-from={art_file}", f],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                check=False)
-            if r.returncode != 0:
-                error_found = True
-                flat = re.sub(r"\s+", " ", r.stderr).strip()
-                append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {r.returncode}, "
-                                   f"import-art): {label} :: {fname} :: "
-                                   f"{flat or 'no stderr output'}")
-            else:
-                upgraded += 1
-        else:
-            fd, temp_file = tempfile.mkstemp(
-                prefix="step15c-tagged.", suffix=f".{ext_lower}", dir=LOG_ROOT)
-            os.close(fd)
-            if os.path.exists(temp_file):
-                os.unlink(temp_file)
+            err=$(metaflac --import-picture-from="$art_file" "$f" 2>&1)
+            rc=$?
+            if [ $rc -ne 0 ]; then
+                error_found=1
+                flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                echo "[$i/$total] ERROR (exit $rc, import-art): $label :: ${f##*/} :: ${flat:-no stderr output}" \
+                    >> "$LOG_ROOT/step15c-errors.log"
+            else
+                upgraded=$((upgraded+1))
+            fi
+        else
+            temp_file=$(mktemp "$LOG_ROOT/step15c-tagged.XXXXXX.${ext_lower}")
+            rm -f "$temp_file" 2>/dev/null
 
-            r = subprocess.run(
-                ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-i", f,
-                 "-i", art_file, "-map", "0:a", "-map", "1", "-c", "copy",
-                 "-disposition:v", "attached_pic", temp_file],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                check=False)
-            if r.returncode == 0 and os.path.isfile(temp_file) and \
-                    os.path.getsize(temp_file) > 0:
-                os.replace(temp_file, f)
-                upgraded += 1
-            else:
-                error_found = True
-                if os.path.exists(temp_file):
-                    os.unlink(temp_file)
-                flat = re.sub(r"\s+", " ", r.stderr).strip()
-                append(ERRORS_LOG, f"[{i}/{total}] ERROR (exit {r.returncode}, "
-                                   f"ffmpeg): {label} :: {fname} :: "
-                                   f"{flat or 'no stderr output'}")
+            err=$(ffmpeg -y -nostdin -loglevel error -i "$f" -i "$art_file" \
+                -map 0:a -map 1 -c copy -disposition:v attached_pic "$temp_file" 2>&1)
+            rc=$?
 
-    if not error_found and upgraded > 0:
-        out_and_log(f"OK    [{i}/{total}] {label} (upgraded: {upgraded}, "
-                    f"kept: {kept}, unchanged: {unchanged})")
-    elif not error_found and processed_any:
-        out_and_log(f"SAME  [{i}/{total}] {label} (kept: {kept}, "
-                    f"unchanged: {unchanged} — nothing needed a higher-res cover)")
-    elif not processed_any:
-        out_and_log(f"SKIP  [{i}/{total}] {label}")
-        append(ERRORS_LOG, f"[{i}/{total}] SKIP: {label} :: no embeddable audio "
-                           "files (FLAC/MP3/M4A/MP4) in this directory")
-    else:
-        out_and_log(f"ERROR [{i}/{total}] {label}")
+            if [ $rc -eq 0 ] && [ -s "$temp_file" ]; then
+                mv -f "$temp_file" "$f" 2>/dev/null
+                upgraded=$((upgraded+1))
+            else
+                error_found=1
+                rm -f "$temp_file" 2>/dev/null
+                flat=$(echo "$err" | tr '\n' ' ' | tr -s ' ')
+                echo "[$i/$total] ERROR (exit $rc, ffmpeg): $label :: ${f##*/} :: ${flat:-no stderr output}" \
+                    >> "$LOG_ROOT/step15c-errors.log"
+            fi
+        fi
+    done
 
-if is_tty:
-    sys.stderr.write("\n")
-print()
-print("----------------------------------------")
-print("15c. Update Album Artwork Embeds (FLAC, MP3, M4A, MP4)")
-print("----------------------------------------")
+    if [ $error_found -eq 0 ] && [ $upgraded -gt 0 ]; then
+        echo "OK    [$i/$total] $label (upgraded: $upgraded, kept: $kept, unchanged: $unchanged)"
+    elif [ $error_found -eq 0 ] && [ $processed_any -gt 0 ]; then
+        echo "SAME  [$i/$total] $label (kept: $kept, unchanged: $unchanged — nothing needed a higher-res cover)"
+    elif [ $processed_any -eq 0 ]; then
+        echo "SKIP  [$i/$total] $label"
+        echo "[$i/$total] SKIP: $label :: no embeddable audio files (FLAC/MP3/M4A/MP4) in this directory" \
+            >> "$LOG_ROOT/step15c-errors.log"
+    else
+        echo "ERROR [$i/$total] $label"
+    fi
+
+done | tee "$LOG_ROOT/step15c-run.log"
+echo
+echo "----------------------------------------"
+echo "15c. Update Album Artwork Embeds (FLAC, MP3, M4A, MP4)"
+echo "----------------------------------------"
 
 ```
---- Script for 15c End ---
+--- Bash Script for 15c End ---
 
 \---------------------------------------------------------------------------------------
 
@@ -5630,237 +5264,193 @@ Writes `step15d-run.log`, `step15d-oks.log`, `step15d-fails.log`,
 log-only; FAIL lines print to the terminal under the album header,
 per the suite screen convention.
 
---- Script for 15d Start ---
-```python
+--- Bash Script for 15d Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # 15d. Ignore-Content Certification — decode-test + per-folder SHA-512
 # ------------------------------------------------------------
-import hashlib
-import os
-import re
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step15d"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step15d"
+mkdir -p "$LOG_ROOT"
 
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def out_and_log(msg):
-    print(msg, flush=True)
-    append(RUN_LOG, msg)
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+: > "$RUN_LOG"; : > "$OKS_LOG"; : > "$FAILS_LOG"; : > "$ERRORS_LOG"; : > "$SUMMARY_LOG"
 
 # --- Preflight: required tools
-for tool in ("flac", "ffmpeg", "sha512sum"):
-    if subprocess.run(["bash", "-c", f"command -v {tool}"],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                      check=False).returncode != 0:
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in flac ffmpeg sha512sum; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
 # --- Discover Ignore folders (any depth, case-insensitive;
 #     nested Ignore-in-Ignore skipped)
-r = subprocess.run(
-    ["find", os.getcwd(), "-type", "d", "-iname", "Ignore",
-     "!", "-ipath", "*/Ignore/*", "-print0"],
-    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
-idirs = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-idirs.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # LC_ALL=C sort -z
+mapfile -d '' idirs < <(find "$PWD" -type d -iname 'Ignore' \
+    ! -ipath '*/Ignore/*' -print0 | LC_ALL=C sort -z)
 
-if not idirs:
-    print()
-    print("----------------------------------------")
-    print("15d. Ignore-Content Certification")
-    print("No Ignore folders found - nothing to certify.")
-    print("----------------------------------------")
-    sys.exit(0)
+if [ "${#idirs[@]}" -eq 0 ]; then
+    echo
+    echo "----------------------------------------"
+    echo "15d. Ignore-Content Certification"
+    echo "No Ignore folders found - nothing to certify."
+    echo "----------------------------------------"
+    exit 0
+fi
 
-start_ts = time.time()
-is_tty = sys.stderr.isatty()
+# --- Progress line: [done/total] % complete, elapsed and ETA (terminal only)
+start_ts=$(date +%s)
+progress() {
+    local done_n=$1 total_n=$2 now el pct eta
+    [ "$total_n" -gt 0 ] || return 0
+    [ -t 2 ] || return 0
+    now=$(date +%s)
+    el=$((now - start_ts))
+    pct=$((done_n * 100 / total_n))
+    eta=0
+    [ "$done_n" -gt 0 ] && eta=$((el * (total_n - done_n) / done_n))
+    printf '\r\033[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   ' \
+        "$done_n" "$total_n" "$pct" \
+        $((el/3600)) $(((el/60)%60)) $((el%60)) \
+        $((eta/3600)) $(((eta/60)%60)) $((eta%60)) >&2
+}
 
+MANIFEST_NAME="Ignore.sha512sums.txt"
+total_dirs=${#idirs[@]}
 
-def progress(done_n, total_n):
-    if not is_tty or total_n <= 0:
-        return
-    el = int(time.time() - start_ts)
-    pct = done_n * 100 // total_n
-    eta = el * (total_n - done_n) // done_n if done_n else 0
-    sys.stderr.write(
-        "\r\x1b[K[%d/%d] %3d%% complete  elapsed %02d:%02d:%02d  ETA %02d:%02d:%02d   "
-        % (done_n, total_n, pct, el // 3600, (el // 60) % 60, el % 60,
-           eta // 3600, (eta // 60) % 60, eta % 60))
-    sys.stderr.flush()
+mapfile -d '' all_audio < <(
+    find "${idirs[@]}" -maxdepth 1 -type f \( \
+        -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
+        -iname "*.ogg"  -o -iname "*.opus" -o -iname "*.wav"  -o \
+        -iname "*.aiff" -o -iname "*.aif"  -o -iname "*.ape"  -o \
+        -iname "*.wv"   -o -iname "*.spx" \
+    \) -print0 | LC_ALL=C sort -z
+)
+total_files=${#all_audio[@]}
 
+echo "========== 15d: Ignore-Content Certification ==========" | tee -a "$RUN_LOG"
+echo "Root: $PWD" | tee -a "$RUN_LOG"
+echo "Started: $(date)" | tee -a "$RUN_LOG"
+echo "Ignore folders: $total_dirs   Audio files: $total_files" | tee -a "$RUN_LOG"
+echo | tee -a "$RUN_LOG"
 
-MANIFEST_NAME = "Ignore.sha512sums.txt"
-total_dirs = len(idirs)
-EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif", "ape",
-        "wv", "spx"]
+manifests_created=0
+manifests_verified=0
+tested_ok=0
+tested_fail=0
+dir_idx=0
+j=0
 
+for d in "${idirs[@]}"; do
+    dir_idx=$((dir_idx + 1))
+    rel_dir="${d#"$PWD"/}"
+    printf '\r\033[K── %s ──\n' "$rel_dir" >&2
+    label="$(basename "$(dirname "$d")") - $(basename "$d") [Ignore]"
 
-def audio_files_in(directory):
-    try:
-        names = os.listdir(directory)
-    except OSError:
-        return []
-    return sorted(
-        (os.path.join(directory, n) for n in names
-         if os.path.isfile(os.path.join(directory, n))
-         and os.path.splitext(n)[1].lstrip(".").lower() in EXTS),
-        key=lambda s: s.encode("utf-8", "surrogateescape"))
+    shopt -s nocaseglob nullglob
+    audio=("$d"/*.flac "$d"/*.mp3 "$d"/*.m4a "$d"/*.ogg "$d"/*.opus "$d"/*.wav \
+           "$d"/*.aiff "$d"/*.aif "$d"/*.ape "$d"/*.wv "$d"/*.spx)
+    shopt -u nocaseglob nullglob
 
-
-total_files = sum(len(audio_files_in(d)) for d in idirs)
-
-out_and_log("========== 15d: Ignore-Content Certification ==========")
-out_and_log(f"Root: {os.getcwd()}")
-out_and_log(f"Started: {time.strftime('%c')}")
-out_and_log(f"Ignore folders: {total_dirs}   Audio files: {total_files}")
-out_and_log("")
-
-manifests_created = manifests_verified = 0
-tested_ok = tested_fail = 0
-dir_idx = 0
-j = 0
-
-for d in idirs:
-    dir_idx += 1
-    rel_dir = os.path.relpath(d, os.getcwd())
-    if is_tty:
-        sys.stderr.write("\r\x1b[K── %s ──\n" % rel_dir)
-    label = (f"{os.path.basename(os.path.dirname(d))} - {os.path.basename(d)} "
-             "[Ignore]")
-
-    audio = audio_files_in(d)
-    manifest = os.path.join(d, MANIFEST_NAME)
+    manifest="$d/$MANIFEST_NAME"
 
     # 1. Manifest: verify if present, create if missing
-    if os.path.isfile(manifest):
-        r = subprocess.run(
-            ["sha512sum", "-c", "--strict", MANIFEST_NAME],
-            cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, check=False)
-        if r.returncode == 0:
-            manifests_verified += 1
-            with open(manifest) as f:
-                n = len(f.read().splitlines())
-            append(RUN_LOG, f"OK   [{dir_idx}/{total_dirs}] {rel_dir} :: "
-                            f"manifest verified ({n} entries)")
-            append(OKS_LOG, f"OK   [{dir_idx}/{total_dirs}] {rel_dir}")
-        else:
-            flat = re.sub(r"\s+", " ", r.stdout).strip()
-            out_and_log(f"FAIL [{dir_idx}/{total_dirs}] {rel_dir}")
-            append(FAILS_LOG, f"FAIL [{dir_idx}/{total_dirs}] {rel_dir}")
-            append(ERRORS_LOG, f"[{dir_idx}/{total_dirs}] ERROR (manifest "
-                               f"verify): {rel_dir} :: {flat or 'no output'}")
-    else:
-        try:
-            with open(manifest, "w") as mf:
-                for name in sorted(os.listdir(d), key=str.encode):
-                    full = os.path.join(d, name)
-                    if not os.path.isfile(full) or name == MANIFEST_NAME:
-                        continue
-                    h = hashlib.sha512()
-                    with open(full, "rb") as fh:
-                        for chunk in iter(lambda: fh.read(1 << 20), b""):
-                            h.update(chunk)
-                    mf.write(f"{h.hexdigest()}  {name}\n")
-            manifests_created += 1
-            append(RUN_LOG, f"CREATED [{dir_idx}/{total_dirs}] {rel_dir} :: "
-                            f"{MANIFEST_NAME}")
-            append(OKS_LOG, f"CREATED [{dir_idx}/{total_dirs}] {rel_dir}")
-        except OSError:
-            out_and_log(f"FAIL [{dir_idx}/{total_dirs}] {rel_dir} "
-                        "(manifest creation failed)")
-            append(RUN_LOG, f"FAIL [{dir_idx}/{total_dirs}] {rel_dir}")
-            append(FAILS_LOG, f"FAIL [{dir_idx}/{total_dirs}] {rel_dir}")
+    if [ -f "$manifest" ]; then
+        vout=$(cd "$d" && sha512sum -c --strict "$MANIFEST_NAME" 2>&1)
+        vrc=$?
+        if [ "$vrc" -eq 0 ]; then
+            manifests_verified=$((manifests_verified + 1))
+            echo "OK   [$dir_idx/$total_dirs] $rel_dir :: manifest verified ($(wc -l < "$manifest") entries)" >> "$RUN_LOG"
+            echo "OK   [$dir_idx/$total_dirs] $rel_dir" >> "$OKS_LOG"
+        else
+            flat=$(printf '%s\n' "$vout" | tr '\r\n' '  ' | tr -s ' ')
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$RUN_LOG"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$FAILS_LOG"
+            echo "[$dir_idx/$total_dirs] ERROR (manifest verify): $rel_dir :: ${flat:-no output}" >> "$ERRORS_LOG"
+        fi
+    else
+        if (cd "$d" && find . -maxdepth 1 -type f ! -name "$MANIFEST_NAME" -print0 \
+                | LC_ALL=C sort -z | xargs -0 -r sha512sum > "$MANIFEST_NAME" 2>>"$ERRORS_LOG"); then
+            manifests_created=$((manifests_created + 1))
+            echo "CREATED [$dir_idx/$total_dirs] $rel_dir :: $MANIFEST_NAME" >> "$RUN_LOG"
+            echo "CREATED [$dir_idx/$total_dirs] $rel_dir" >> "$OKS_LOG"
+        else
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir (manifest creation failed)"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$RUN_LOG"
+            echo "FAIL [$dir_idx/$total_dirs] $rel_dir" >> "$FAILS_LOG"
+        fi
+    fi
 
     # 2. Integrity-test every audio file in this Ignore folder
-    for f in audio_files_in(d):
-        j += 1
-        progress(j, total_files)
-        if f.lower().endswith(".flac"):
-            res = subprocess.run(["flac", "-s", "-t", f],
-                                 stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.PIPE, text=True, check=False)
-        else:
-            res = subprocess.run(
-                ["ffmpeg", "-nostdin", "-v", "error", "-i", f, "-f", "null", "-"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                check=False)
-        rel_f = os.path.relpath(f, os.getcwd())
-        if res.returncode == 0:
-            tested_ok += 1
-            append(RUN_LOG, f"OK   [{j}/{total_files}] {rel_f}")
-            append(OKS_LOG, f"OK   [{j}/{total_files}] {rel_f}")
-        else:
-            flat = re.sub(r"\s+", " ", res.stderr).strip()
-            tested_fail += 1
-            out_and_log(f"FAIL [{j}/{total_files}] {rel_f}")
-            append(RUN_LOG, f"FAIL [{j}/{total_files}] {rel_f}")
-            append(FAILS_LOG, f"FAIL [{j}/{total_files}] {rel_f}")
-            append(ERRORS_LOG, f"[{j}/{total_files}] ERROR (exit {res.returncode}): "
-                               f"{rel_f} :: {flat or 'no stderr output'}")
+    for f in "${audio[@]}"; do
+        j=$((j + 1))
+        progress "$j" "$total_files"
+        case "${f,,}" in
+            *.flac) err=$(flac -s -t "$f" 2>&1); rc=$? ;;
+            *)      err=$(ffmpeg -nostdin -v error -i "$f" -f null - 2>&1); rc=$? ;;
+        esac
+        rel_f="${f#"$PWD"/}"
+        if [ "$rc" -eq 0 ]; then
+            tested_ok=$((tested_ok + 1))
+            echo "OK   [$j/$total_files] $rel_f" >> "$RUN_LOG"
+            echo "OK   [$j/$total_files] $rel_f" >> "$OKS_LOG"
+        else
+            flat=$(printf '%s\n' "$err" | tr '\r\n' '  ' | tr -s ' ')
+            tested_fail=$((tested_fail + 1))
+            echo "FAIL [$j/$total_files] $rel_f"
+            echo "FAIL [$j/$total_files] $rel_f" >> "$RUN_LOG"
+            echo "FAIL [$j/$total_files] $rel_f" >> "$FAILS_LOG"
+            echo "[$j/$total_files] ERROR (exit $rc): $rel_f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
+        fi
+    done
+done
+printf '\n' >&2
 
-if is_tty:
-    sys.stderr.write("\n")
+{
+echo "Step 15d Summary"
+echo "=============="
+echo
+echo "Step               : step15d"
+echo "Run Date           : $(date)"
+echo
+echo "Ignore folders     : $total_dirs"
+echo "Manifests created  : $manifests_created"
+echo "Manifests verified : $manifests_verified"
+echo "Audio files tested : $j (OK: $tested_ok  FAIL: $tested_fail)"
+} > "$SUMMARY_LOG"
 
-with open(SUMMARY_LOG, "w") as f:
-    f.write("Step 15d Summary\n==============\n\n")
-    f.write(f"Step               : {STEP}\n")
-    f.write(f"Run Date           : {time.strftime('%c')}\n\n")
-    f.write(f"Ignore folders     : {total_dirs}\n")
-    f.write(f"Manifests created  : {manifests_created}\n")
-    f.write(f"Manifests verified : {manifests_verified}\n")
-    f.write(f"Audio files tested : {j} (OK: {tested_ok}  FAIL: {tested_fail})\n")
-
-print()
-print("----------------------------------------")
-print("Step 15d Summary Review")
-print("----------------------------------------")
-print(f"Ignore folders     : {total_dirs}")
-print(f"Manifests created  : {manifests_created}")
-print(f"Manifests verified : {manifests_verified}")
-print(f"Audio files tested : {j} (OK: {tested_ok}  FAIL: {tested_fail})")
-print()
-print(f"Summary written to : {SUMMARY_LOG}")
-print()
-print("----------------------------------------")
-print("15d – Ignore-Content Certification")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Step 15d Summary Review"
+echo "----------------------------------------"
+echo "Ignore folders     : $total_dirs"
+echo "Manifests created  : $manifests_created"
+echo "Manifests verified : $manifests_verified"
+echo "Audio files tested : $j (OK: $tested_ok  FAIL: $tested_fail)"
+echo
+echo "Summary written to : $SUMMARY_LOG"
+echo
+echo "----------------------------------------"
+echo "15d – Ignore-Content Certification"
+echo "----------------------------------------"
 
 ```
---- Script for 15d End ---
+--- Bash Script for 15d End ---
 
 \---------------------------------------------------------------------------------------
 

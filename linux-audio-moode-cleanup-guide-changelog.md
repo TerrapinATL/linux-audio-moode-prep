@@ -6,9 +6,10 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v40** — supersedes v39. Converts Step 5 (ReplayGain)
-to extensionless Python and applies the suite's documented M4A/MP4
-loudgain workaround to it. See the v40 entry below.
+**Current version: v41** — supersedes v40. Completes the no-.sh
+conversion: Steps 6-10, 15a-15d and the Preflight are now extensionless
+Python, matching Steps 1, 1B and 2A-2E from v33-v40. See the v41 entry
+below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -436,3 +437,66 @@ of changes from v30:
 * **Versioned copy** — the prior guide (v39) was archived as
   `linux-audio-moode-cleanup-guide-v39.md` before editing, per the
   update rule.
+
+---
+
+## v41 Change Log (2026-09-20)
+
+* **Conversion complete: every embedded script is now extensionless
+  Python.** This entry covers the remaining nine scripts, all converted
+  from bash with behavior, log files and screen conventions preserved:
+  - **Step 6** `step6-verify` — post-ReplayGain integrity verification
+    (same test as Step 4, step06-* logs).
+  - **Step 7** `step7-cleanup` — loose-file removal (*.fixed.*,
+    *.prerepair[.flac], *.reencode[.flac], *.tmp, *.temp, *~), artifact
+    list logged before deletion, idempotent.
+  - **Step 8** `step8-repair` — FLAC deep repair (last resort): skip
+    passing files, export tags + first embedded picture, decode/
+    re-encode, post-reencode flac -t, tag/picture re-import,
+    FIXED-CLEAN vs FIXED-REVIEW classification, .prerepair backup that
+    self-deletes once the rebuild passes (v28 convention).
+  - **Step 9** `step9-verify` — format pre-flight (flac/mp3/m4a
+    container-vs-extension check via ffprobe) plus the tag-vs-filename
+    failsafe with the normalized comparator (lowercase alphanumerics),
+    MISMATCH/UNPARSEABLE/NOFFPROBE verdict lines, summary footer.
+  - **Step 10** `step10-final-verify` — final integrity test (progress
+    counter, stderr album headers, log-only OK lines, FAIL lines
+    visible on screen).
+  - **15a** `step15a-strip` — surgical FLAC metadata strip (SEEKTABLE/
+    CUESHEET removed via a single metaflac --remove call; padding/
+    APPLICATION/ID3 flagged to review; conforming files untouched).
+  - **15b** `step15b-covers` — cover consolidation with the moOde
+    priority list, stray promotion, png/tiff conversion (tiff source
+    removed), extras logged never deleted, idempotent re-runs.
+  - **15c** `step15c-embeds` — artwork embeds with the resolution gate
+    (strictly higher-res cover replaces, byte-identical/equal/lower-res
+    kept), metaflac path for FLAC, attached_pic stream-copy for
+    MP3/M4A/MP4.
+  - **15d** `step15d-ignore` — Ignore-content certification: per-folder
+    Ignore.sha512sums.txt create-or-verify (hashlib-native) plus full
+    decode tests for every audio file in each Ignore folder.
+  - **Preflight** `preflight` — tool checks adapted to the Python
+    suite's real requirements (find replaces the retired jq/core-utils
+    list), eyed3 module check, and the dynamic disk-space gate for the
+    Step 3 backup layer.
+* **Preflight marker defect repaired.** The guide's Preflight script
+  block had a Start marker with no End marker; the converted block now
+  carries a proper "--- Script Preflight End ---".
+* **Fixture tests** (isolated HOME across the whole session): each
+  converted script was exercised against fabricated libraries —
+  integrity fail/pass cases, all six naming separators plus Bandcamp
+  names and collisions, real duplicate tags removed and decode-verified
+  (2C.2/2C.3/2C.5), loudgain failure and success paths including the
+  M4A segfault workaround, container rebuild with bit-identical audio
+  MD5s, corrupt-file deep repair with tags preserved, tag-vs-filename
+  mismatch detection with correct issue lists, seektable strip-and-
+  verify, cover rename/convert/promote with idempotent re-runs,
+  embed-upgrade and byte-identical skip, Ignore manifest create/verify/
+  corrupt-file detection, preflight all-present/missing handling.
+  Every converted script passes py_compile.
+* **Versioned copy** — the prior guide (v40) was archived as
+  `linux-audio-moode-cleanup-guide-v40.md` before editing, per the
+  update rule.
+* **Remaining embedded bash**: the small "Cat"/"Results" log-viewer
+  snippets (5-37 lines each) are intentionally left as documented
+  one-liners for viewing logs; they are not part of the pipeline.
