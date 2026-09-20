@@ -917,125 +917,106 @@ Every per-file line is written with `tee -a` at the point it happens, to `run.lo
 
 Locate all candidate audio files and create the clean input list.
 
---- Script Step 2A Start ---
-```python
+--- Bash Script Step 2A Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2A — File Discovery
 # ------------------------------------------------------------
-import os
-import subprocess
-import sys
 
-TARGET_DIR = sys.argv[1] if len(sys.argv) > 1 else "."
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02a"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+TARGET_DIR="${1:-.}"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02a"
+mkdir -p "$LOG_ROOT"
 
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
+
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
+: > "$CANDIDATE_LIST"
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "ERROR: target directory not found :: $TARGET_DIR" | tee -a "$RUN_LOG" "$ERRORS_LOG" >/dev/null
+    echo "STATUS=ERROR" | tee -a "$SUMMARY_LOG" >/dev/null
+    echo "----------------------------------------"
+    echo "Step 2A - File Discovery"
+    echo "----------------------------------------"
+    
+    # Interactive view for directory target errors
+    if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
+        echo
+        echo "=================================================="
+        echo " ERRORS DETECTED — Press ENTER to view error log"
+        echo " (Use arrow keys to scroll, press 'q' to exit)"
+        echo "=================================================="
+        read -r
+        less -R "$ERRORS_LOG"
+    fi
+    exit 1
+fi
+
+i=0
+
+mapfile -d '' files < <(find "$TARGET_DIR" -type f ! -ipath '*/Ignore/*' \
+    ! -iname "*.prerepair*" \
+    ! -iname "*.fixed.*" \
+    ! -iname "*.reencode*" \
+    \( \
+    -iname '*.flac' -o -iname '*.mp3' -o -iname '*.m4a' -o -iname '*.mp4' -o \
+    -iname '*.wv' -o -iname '*.ogg' -o -iname '*.opus' -o -iname '*.aac' -o \
+    -iname '*.wav' -o -iname '*.aiff' -o -iname '*.aif' -o -iname '*.aifc' -o \
+    -iname '*.ape' -o -iname '*.mpc' -o -iname '*.spx' \) -print0)
+
+found=${#files[@]}
+: > "$CANDIDATE_LIST"
+
+for file in "${files[@]}"; do
+    i=$((i + 1))
+    printf '%s\0' "$file" >> "$CANDIDATE_LIST"
+    echo "OK   [$i/$found] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+done
+
+echo "TOTAL_CANDIDATES=$found" | tee -a "$SUMMARY_LOG" >/dev/null
+echo "STATUS=OK" | tee -a "$SUMMARY_LOG" >/dev/null
 
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+# Interactive error inspector
+if [ -t 1 ] && [ -s "$ERRORS_LOG" ]; then
+    echo
+    echo "=================================================="
+    echo " ERRORS DETECTED — Press ENTER to view error log"
+    echo " (Use arrow keys to scroll, press 'q' to exit)"
+    echo "=================================================="
+    read -r
+    less -R "$ERRORS_LOG"
+fi
 
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-if not os.path.isdir(TARGET_DIR):
-    msg = f"ERROR: target directory not found :: {TARGET_DIR}"
-    append(RUN_LOG, msg)
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print("----------------------------------------")
-    print("Step 2A - File Discovery")
-    print("----------------------------------------")
-    if sys.stdout.isatty() and os.path.getsize(ERRORS_LOG) > 0:
-        print()
-        print("==================================================")
-        print(" ERRORS DETECTED — Press ENTER to view error log")
-        print(" (Use arrow keys to scroll, press 'q' to exit)")
-        print("==================================================")
-        try:
-            input()
-        except EOFError:
-            pass
-        subprocess.run(["less", "-R", ERRORS_LOG], check=False)
-    keep_open_on_error(1)
-
-# Extensions covered by Step 2A (matches the bash find command)
-EXTS = ["flac", "mp3", "m4a", "mp4", "wv", "ogg", "opus", "aac", "wav",
-        "aiff", "aif", "aifc", "ape", "mpc", "spx"]
-
-find_args = ["find", TARGET_DIR, "-type", "f",
-             "!", "-ipath", "*/Ignore/*",
-             "!", "-iname", "*.prerepair*",
-             "!", "-iname", "*.fixed.*",
-             "!", "-iname", "*.reencode*",
-             "("]
-for i, e in enumerate(EXTS):
-    if i:
-        find_args.append("-o")
-    find_args += ["-iname", f"*.{e}"]
-find_args += [")", "-print0"]
-
-r = subprocess.run(find_args, stdout=subprocess.PIPE, check=False)
-files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-
-with open(CANDIDATE_LIST, "wb") as f:
-    for path in files:
-        f.write(path.encode("utf-8", "surrogateescape") + b"\0")
-
-found = len(files)
-for i, path in enumerate(files, 1):
-    append(RUN_LOG, f"OK   [{i}/{found}] :: {path}")
-    append(OKS_LOG, f"OK   [{i}/{found}] :: {path}")
-
-with open(SUMMARY_LOG, "a") as f:
-    f.write(f"TOTAL_CANDIDATES={found}\n")
-    f.write("STATUS=OK\n")
-
-if sys.stdout.isatty() and os.path.getsize(ERRORS_LOG) > 0:
-    print()
-    print("==================================================")
-    print(" ERRORS DETECTED — Press ENTER to view error log")
-    print(" (Use arrow keys to scroll, press 'q' to exit)")
-    print("==================================================")
-    try:
-        input()
-    except EOFError:
-        pass
-    subprocess.run(["less", "-R", ERRORS_LOG], check=False)
-
-print()
-print("----------------------------------------")
-print(f"Candidates found : {found}")
-print("----------------------------------------")
-print("Step 2A - File Discovery")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Candidates found : $found"
+echo "----------------------------------------"
+echo "Step 2A - File Discovery"
+echo "----------------------------------------"
 
 ```
---- Script Step 2A End ---
+
+--- Bash Script Step 2A End ---
 
 \ ---------------------------------------------------------------------------------------
 
@@ -1047,108 +1028,96 @@ Dedupe-capable: FLAC, MP3, OGG, Opus — auto-fixed in Step 2C.
 Review-capable: M4A, MP4, WavPack — flagged in Step 2C if duplicates are found, never auto-fixed.
 Unsupported: raw AAC, WAV, AIFF, AIF, AIFC, APE, MPC, SPX, and anything else Step 2A found.
 
---- Script Step 2B Start ---
-```python
+--- Bash Script Step 2B Start ---
 
-#!/usr/bin/env python3
+```bash
+
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 2B — Format Assessment
 # ------------------------------------------------------------
-import os
-import sys
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step02b"
-os.makedirs(LOG_ROOT, exist_ok=True)
+set -u
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step02b"
+mkdir -p "$LOG_ROOT"
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
+: > "$RUN_LOG"
+: > "$OKS_LOG"
+: > "$FAILS_LOG"
+: > "$ERRORS_LOG"
+: > "$SUMMARY_LOG"
+CANDIDATE_LIST="$LOG_ROOT/step02-candidates.txt"
+if [ ! -s "$CANDIDATE_LIST" ]; then
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST" >> "$ERRORS_LOG"
+    echo "STATUS=ERROR" >> "$SUMMARY_LOG"
+    echo "ERROR: candidate list empty or missing :: $CANDIDATE_LIST"
+    echo "Run Step 2A first."
+    exit 1
+fi
+declare -A format_count
+total_count=$(tr -cd '\000' < "$CANDIDATE_LIST" | wc -c)
+dedupe_count=0
+review_count=0
+unsupported_count=0
+i=0
 
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
-
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
-
-CANDIDATE_LIST = os.path.join(LOG_ROOT, "step02-candidates.txt")
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0:
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
-
-if not (os.path.isfile(CANDIDATE_LIST) and os.path.getsize(CANDIDATE_LIST) > 0):
-    msg = f"ERROR: candidate list empty or missing :: {CANDIDATE_LIST}"
-    append(ERRORS_LOG, msg)
-    with open(SUMMARY_LOG, "a") as f:
-        f.write("STATUS=ERROR\n")
-    print(msg)
-    print("Run Step 2A first.")
-    keep_open_on_error(1)
-
-DEDUPE = {"flac", "mp3", "ogg", "opus"}
-REVIEW = {"m4a", "mp4", "wv"}
-
-with open(CANDIDATE_LIST, "rb") as f:
-    candidates = [p.decode("utf-8", "surrogateescape") for p in f.read().split(b"\0") if p]
-total_count = len(candidates)
-
-format_count = {}
-dedupe_count = review_count = unsupported_count = 0
-
-for i, path in enumerate(candidates, 1):
-    if not os.access(path, os.R_OK):
-        log_msg = f"ERROR: unreadable file :: {path}"
-        append(ERRORS_LOG, log_msg)
+while IFS= read -r -d '' file; do
+    if [ ! -r "$file" ]; then
+        echo "ERROR: unreadable file :: $file" >> "$ERRORS_LOG"
         continue
-    ext_lc = os.path.splitext(os.path.basename(path))[1].lower().lstrip(".")
-    append(RUN_LOG, f"{ext_lc} [FOUND] :: {path}")
-    format_count[ext_lc] = format_count.get(ext_lc, 0) + 1
+    fi
+    i=$((i + 1))
+    fname=$(basename "$file")
+    ext="${fname##*.}"
+    ext_lc="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
+    echo "$ext_lc [FOUND] :: $file" >> "$RUN_LOG"
+    format_count[$ext_lc]=$((${format_count[$ext_lc]:-0} + 1))
 
-    if ext_lc in DEDUPE:
-        append(OKS_LOG, f"OK   [{i}/{total_count}] :: {path}")
-        dedupe_count += 1
-    elif ext_lc in REVIEW:
-        append(FAILS_LOG, f"REVIEW [{i}/{total_count}] :: {path}")
-        review_count += 1
-    else:
-        unsupported_count += 1
+    case "$ext_lc" in
+        flac|mp3|ogg|opus)
+            echo "OK   [$i/$total_count] :: $file" | tee -a "$RUN_LOG" "$OKS_LOG" >/dev/null
+            dedupe_count=$((dedupe_count + 1))
+            ;;
+        m4a|mp4|wv)
+            echo "REVIEW [$i/$total_count] :: $file" | tee -a "$RUN_LOG" "$FAILS_LOG" >/dev/null
+            review_count=$((review_count + 1))
+            ;;
+        *)
+            unsupported_count=$((unsupported_count + 1))
+            ;;
+    esac
+done < "$CANDIDATE_LIST"
+echo "STATUS=OK" >> "$SUMMARY_LOG"
+for fmt in "${!format_count[@]}"; do
+    echo "$fmt=${format_count[$fmt]}" >> "$SUMMARY_LOG"
+done
+echo "TOTAL=$total_count" >> "$SUMMARY_LOG"
+echo "DEDUPE_CAPABLE=$dedupe_count" >> "$SUMMARY_LOG"
+echo "REVIEW_CAPABLE=$review_count" >> "$SUMMARY_LOG"
+echo "UNSUPPORTED=$unsupported_count" >> "$SUMMARY_LOG"
 
-with open(SUMMARY_LOG, "a") as f:
-    f.write("STATUS=OK\n")
-    for fmt in sorted(format_count):
-        f.write(f"{fmt}={format_count[fmt]}\n")
-    f.write(f"TOTAL={total_count}\n")
-    f.write(f"DEDUPE_CAPABLE={dedupe_count}\n")
-    f.write(f"REVIEW_CAPABLE={review_count}\n")
-    f.write(f"UNSUPPORTED={unsupported_count}\n")
+echo "Format Breakdown:"
+for fmt in $(printf '%s\n' "${!format_count[@]}" | sort); do
+    printf "  %-18s : %d\n" "$(printf '%s' "$fmt" | tr '[:lower:]' '[:upper:]')" "${format_count[$fmt]}"
+done
 
-print("Format Breakdown:")
-for fmt in sorted(format_count):
-    print(f"  {fmt.upper():<18} : {format_count[fmt]}")
-
-print()
-print("----------------------------------------")
-print(f"Total: {total_count}  Dedupe: {dedupe_count}  Review: {review_count}  "
-      f"Unsupported: {unsupported_count}")
-print("----------------------------------------")
-print("Step 2B - Format Assessment")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Total: $total_count  Dedupe: $dedupe_count  Review: $review_count  Unsupported: $unsupported_count"
+echo "----------------------------------------"
+echo "Step 2B - Format Assessment"
+echo "----------------------------------------"
 
 ```
---- Script Step 2B End ---
+--- Bash Script Step 2B End ---
 ## Step 2C — Metadata Deduplication
 
 Removes confirmed duplicate metadata entries using the native tool for each supported format and flags review-capable files that contain duplicates instead of auto-fixing them.

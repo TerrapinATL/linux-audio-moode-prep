@@ -6,9 +6,9 @@ All version changes are appended to this file, newest last, one `## vX.Y Change 
 
 **Suite convention (auto-purge):** every guide/repo with error logging must purge its log directory at the START of the workflow (first step), so the previous run's logs remain reviewable until the next run replaces them. This applies to all current and future repositories.
 
-**Current version: v33** — supersedes v32. Converts every Step 2C
-sub-step script from bash to extensionless Python and fixes the Opus
-tool invocations for opustags 1.9.x. See the v33 entry below.
+**Current version: v34** — supersedes v33. Converts Step 2A and 2B
+from bash to extensionless Python, completing the whole Step 2 suite
+in Python. See the v34 entry below.
 
 Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 
@@ -242,4 +242,28 @@ of changes from v30:
   conversion.
 * **Versioned copy** — the prior guide (v32) was archived as
   `linux-audio-moode-cleanup-guide-v32.md` before editing, per the
+  update rule.
+
+---
+
+## v34 Change Log (2026-09-20)
+
+* **Steps 2A and 2B converted to Python (no-.sh policy).**
+  - 2A File Discovery is now `step2a-discovery`, 2B Format Assessment is
+    now `step2b-assessment` (extensionless Python). Same find semantics
+    (Ignore-path exclusion, prerepair/fixed/reencode exclusion, the same
+    15 audio extensions), same five-file log standard, same summary keys
+    (TOTAL_CANDIDATES / STATUS=OK / per-format counts / TOTAL /
+    DEDUPE_CAPABLE / REVIEW_CAPABLE / UNSUPPORTED), same interactive
+    error inspector (Press ENTER, less -R).
+  - **Conversion bug caught in testing:** the Python find invocation
+    initially glued the `!` operator to the `-ipath`/`-iname` flags as a
+    single argument, which made find silently match nothing; caught by
+    the fixture test and fixed before commit.
+* **Fixture test** (isolated HOME): 8 files planted including an
+  `Ignore/` subfolder and a `.prerepair` copy — 2A correctly returned 6
+  candidates, 2B classified 3 dedupe / 2 review / 1 unsupported, and
+  2C.1 consumed the produced candidate list unchanged (6 found).
+* **Versioned copy** — the prior guide (v33) was archived as
+  `linux-audio-moode-cleanup-guide-v33.md` before editing, per the
   update rule.
