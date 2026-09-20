@@ -311,237 +311,231 @@ No files are modified during this step.
 
 \---------------------------------------------------------------------------------------
 
---- Script Step 1 Start ---
-```python
+--- Bash Script Step 1 Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ------------------------------------------------------------
 # Step 1 – Multi-Format Audio Integrity Test
 # ------------------------------------------------------------
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step01"
+set -u
+
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step01"
 
 # AUTOPURGE: remove all logs from any previous run of this workflow.
 # This runs at the START of the workflow, so the previous run's logs remain
 # on disk for review until the next run replaces them.
-shutil.rmtree(LOG_ROOT, ignore_errors=True)
-os.makedirs(LOG_ROOT, exist_ok=True)
-
-
-def which(name):
-    return shutil.which(name) is not None
-
-
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
-
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+rm -rf "$LOG_ROOT"
+mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
-for tool in ("flac", "ffmpeg"):
-    if not which(tool):
-        print(f"ERROR: {tool} is not installed. Install it and re-run "
-              "(see Requirements).", file=sys.stderr)
-        keep_open_on_error(1)
+for tool in flac ffmpeg; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
 # 1. Define Log Files (Five-File Standard)
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
 
-# 2/3. CLEANUP + Initialize (files already gone with AUTOPURGE, touch to be sure)
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG):
-    open(path, "w").close()
+# 2. CLEANUP: Delete this step's own logs from any previous run
+rm -f "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
+
+# 3. Initialize Empty Log Files
+touch "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG"
 
 # 3b. Optional: Pre-warm the filesystem cache (read-only)
 # Asking at the start of Step 1 lets later flac -t / ffmpeg passes
 # (Step 1, 4, 6, 10) read from RAM instead of a mechanical HDD.
-EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif", "mp4",
-        "ape", "wv", "spx"]
-EXCLUDES = ["!", "-ipath", "*/Ignore/*",
-            "!", "-iname", "*.prerepair*",
-            "!", "-iname", "*.fixed.*",
-            "!", "-iname", "*.reencode.*"]
-
-
-def build_find(extra_exclude_manifests=False):
-    args = ["find", os.getcwd(), "-type", "f", *EXCLUDES]
-    if extra_exclude_manifests:
-        args += ["!", "-iname", "*.sha512sums.txt"]
-    args.append("(")
-    for i, e in enumerate(EXTS):
-        if i:
-            args.append("-o")
-        args += ["-iname", f"*.{e}"]
-    args += [")", "-print0"]
-    r = subprocess.run(args, stdout=subprocess.PIPE,
-                       stderr=subprocess.DEVNULL, check=False)
-    files = [p.decode("utf-8", "surrogateescape")
-             for p in r.stdout.split(b"\0") if p]
-    # sort -z equivalent: byte-wise sort of the NUL-separated list
-    files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))
-    return files
-
-
-def prompt_yn(prompt):
-    try:
-        answer = input(prompt)
-    except EOFError:
-        return False
-    return answer.strip().lower() in ("y", "yes")
-
-
-if sys.stdin.isatty() and prompt_yn(
-        "\nPre-warm the library into the page cache before testing? [y/N] "):
-    PREWARM_LOG = os.path.join(LOG_ROOT, "step01-prewarm.log")
-    PREWARM_ERRORS = os.path.join(LOG_ROOT, "step01-prewarm-errors.log")
-    open(PREWARM_LOG, "w").close()
-    with open(PREWARM_LOG, "a") as f:
-        f.write("=== Step 1 Cache Pre-Warm (read-only) ===\n")
-        f.write(f"Started: {time.strftime('%c')}\n")
-    start = time.time()
-    pw_files = build_find(extra_exclude_manifests=True)
-    pw_total = len(pw_files)
-    err_sink = open(PREWARM_ERRORS, "a")
-    try:
-        for i, path in enumerate(pw_files, 1):
-            print(f"\rPre-warming: {i}/{pw_total} files "
-                  f"({i * 100 // max(1, pw_total)}%)", end="", flush=True)
-            with open(path, "rb") as fh:
-                while fh.read(1 << 20):
-                    pass
-    except OSError as e:
-        err_sink.write(f"{path}: {e}\n")
-    finally:
-        err_sink.close()
-    sys.stdout.write("\r\x1b[K")
-    print(f"SUMMARY: pre-warm read {pw_total} files in "
-          f"{int(time.time() - start)}s.")
-else:
-    if sys.stdin.isatty():
-        print("Skipping cache pre-warm.")
+if [ -t 0 ]; then
+    printf '\nPre-warm the library into the page cache before testing? [y/N] '
+    read -r WARM
+    case "$WARM" in
+        y|Y|yes|YES)
+            PREWARM_LOG="$LOG_ROOT/step01-prewarm.log"
+            : > "$PREWARM_LOG"
+            echo "=== Step 1 Cache Pre-Warm (read-only) ===" | tee -a "$PREWARM_LOG"
+            echo "Started: $(date)" | tee -a "$PREWARM_LOG"
+            start=$(date +%s)
+            # File list first (metadata-only pass) so a % counter can be shown
+            mapfile -d '' pw_files < <(
+                find "$PWD" -type f \
+                    ! -ipath '*/Ignore/*' \
+                    ! -iname '*.prerepair*' \
+                    ! -iname '*.fixed.*' \
+                    ! -iname '*.reencode.*' \
+                    ! -iname '*.sha512sums.txt' \
+                    \( \
+                        -iname "*.flac" -o -iname "*.mp3" -o -iname "*.m4a" -o \
+                        -iname "*.ogg"  -o -iname "*.opus" -o -iname "*.wav" -o \
+                        -iname "*.aiff" -o -iname "*.aif"  -o -iname "*.mp4" -o \
+                        -iname "*.ape"  -o -iname "*.wv"   -o -iname "*.spx" \
+                    \) -print0
+            )
+            pw_total=${#pw_files[@]}
+            pw_i=0
+            # Single sequential read pass - friendliest for a mechanical HDD
+            for pw_f in "${pw_files[@]}"; do
+                ((pw_i++))
+                printf '\rPre-warming: %d/%d files (%d%%)' \
+                    "$pw_i" "$pw_total" $(( pw_i * 100 / pw_total ))
+                cat "$pw_f" >/dev/null 2>>"$LOG_ROOT/step01-prewarm-errors.log"
+            done
+            printf '\r\033[K'
+            end=$(date +%s)
+            echo "SUMMARY: pre-warm read $pw_total files in $((end-start))s." | tee -a "$PREWARM_LOG"
+            ;;
+        *)
+            echo "Skipping cache pre-warm."
+            ;;
+    esac
+fi
 
 # 4. File Discovery
-files = build_find(extra_exclude_manifests=False)
-total = len(files)
-last_dir = ""
+mapfile -d '' files < <(
+    find "$PWD" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname "*.prerepair*" \
+        ! -iname "*.fixed.*" \
+        ! -iname "*.reencode.*" \
+        \( \
+            -iname "*.flac" -o \
+            -iname "*.mp3"  -o \
+            -iname "*.m4a"  -o \
+            -iname "*.ogg"  -o \
+            -iname "*.opus" -o \
+            -iname "*.wav"  -o \
+            -iname "*.aiff" -o \
+            -iname "*.aif"  -o \
+            -iname "*.mp4"  -o \
+            -iname "*.ape"  -o \
+            -iname "*.wv"   -o \
+            -iname "*.spx" \
+        \) -print0 2>>"$LOG_ROOT/${STEP}-errors.log" | sort -z
+)
 
-for i, path in enumerate(files, 1):
-    label = os.path.relpath(path, os.getcwd())
-    current_dir = os.path.dirname(label) or "."
+total=${#files[@]}
+i=0
+last_dir=""
+
+for f in "${files[@]}"; do
+
+    ((i++))
+    label="${f#"$PWD"/}"
+    current_dir="$(dirname "$label")"
 
     # Insert a blank line on terminal screen when moving to a new folder/album
-    if last_dir and current_dir != last_dir:
-        print()
-    last_dir = current_dir
+    if [[ -n "$last_dir" && "$current_dir" != "$last_dir" ]]; then
+        echo ""
+    fi
+    last_dir="$current_dir"
 
-    if path.lower().endswith(".flac"):
-        r = subprocess.run(["flac", "-s", "-t", path],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.PIPE, text=True, check=False)
-    else:
-        r = subprocess.run(
-            ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-f", "null", "-"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-            check=False)
-    rc = r.returncode
+    case "${f,,}" in
+        *.flac)
+            err=$(flac -s -t "$f" 2>&1)
+            rc=$?
+            ;;
+        *)
+            err=$(ffmpeg -nostdin -v error -i "$f" -f null - 2>&1)
+            rc=$?
+            ;;
+    esac
 
-    if rc == 0:
-        out_msg = f"OK   [{i}/{total}] {label}"
-        print(out_msg)
-        append(RUN_LOG, out_msg)
-        append(OKS_LOG, out_msg)
-    else:
-        flat = re.sub(r"\s+", " ", r.stderr.replace("\r", " ").replace("\n", " ")).strip()
-        out_msg = f"FAIL [{i}/{total}] {label}"
-        print(out_msg)
-        append(RUN_LOG, out_msg)
-        append(FAILS_LOG, out_msg)
-        append(ERRORS_LOG,
-               f"[{i}/{total}] ERROR (exit {rc}): {label} :: {path} :: "
-               f"{flat or 'no stderr output'}")
+    if [ $rc -eq 0 ]; then
+        out_msg="OK   [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$OKS_LOG"
+    else
+        flat=$(printf '%s\n' "$err" | tr '\r\n' ' ' | tr -s ' ')
+        out_msg="FAIL [$i/$total] $label"
+        echo "$out_msg"
+        echo "$out_msg" >> "$RUN_LOG"
+        echo "$out_msg" >> "$FAILS_LOG"
+        echo "[$i/$total] ERROR (exit $rc): $label :: $f :: ${flat:-no stderr output}" >> "$ERRORS_LOG"
+    fi
+
+done
 
 # 5. Count Results
-with open(RUN_LOG) as f:
-    run_text = f.read()
-ok_count = sum(1 for l in run_text.splitlines() if l.startswith("OK"))
-fail_count = sum(1 for l in run_text.splitlines() if l.startswith("FAIL"))
+ok_count=$(grep -a "^OK" "$RUN_LOG" 2>/dev/null | wc -l)
+fail_count=$(grep -a "^FAIL" "$RUN_LOG" 2>/dev/null | wc -l)
 
 # 6. Generate Summary Log
-with open(SUMMARY_LOG, "w") as f:
-    f.write("Step 1 Summary\n")
-    f.write("==============\n\n")
-    f.write(f"Step       : {STEP}\n")
-    f.write(f"Run Date   : {time.strftime('%c')}\n\n")
-    f.write(f"Processed  : {total}\n")
-    f.write(f"Passed     : {ok_count}\n")
-    f.write(f"Failed     : {fail_count}\n")
+{
+echo "Step 1 Summary"
+echo "=============="
+echo
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo
+echo "Processed  : $total"
+echo "Passed     : $ok_count"
+echo "Failed     : $fail_count"
+} > "$SUMMARY_LOG"
 
 # 7. Terminal Output
-print()
-if os.path.getsize(ERRORS_LOG) > 0:
-    print("----------------------------------------")
-    print("Error Summary")
-    print("----------------------------------------")
-    # Group error lines: LOST_SYNC vs END_OF_STREAM, path extracted from
-    # the [i/total] ERROR (exit rc): label :: file :: detail line
-    lost_sync, eos = {}, {}
-    with open(ERRORS_LOG, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if "LOST_SYNC" in line:
-                idx = line.find(" :: ")
-                if idx > 0:
-                    temp = line[:idx]
-                    pos = temp.find("): ") + 3
-                    lost_sync[temp[pos:]] = True
-            elif "END_OF_STREAM" in line:
-                idx = line.find(" :: ")
-                if idx > 0:
-                    temp = line[:idx]
-                    pos = temp.find("): ") + 3
-                    eos[temp[pos:]] = True
-    if lost_sync:
-        print("LOST_SYNC")
-        print("----------")
-        for p in sorted(lost_sync):
-            print(p)
-    if eos:
-        if lost_sync:
-            print()
-        print("END_OF_STREAM")
-        print("----------")
-        for p in sorted(eos):
-            print(p)
+echo
+if [ -s "$ERRORS_LOG" ]; then
+    echo "----------------------------------------"
+    echo "Error Summary"
+    echo "----------------------------------------"
+    awk '
+    /LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            lost_sync[path] = 1
+        }
+    }
+    /END_OF_STREAM/ && !/LOST_SYNC/ {
+        idx = index($0, " :: ")
+        if (idx > 0) {
+            temp = substr($0, 1, idx - 1)
+            pos = index(temp, "): ") + 3
+            path = substr(temp, pos)
+            eos[path] = 1
+        }
+    }
+    END {
+        if (length(lost_sync) > 0) {
+            print "LOST_SYNC"
+            print "----------"
+            for (p in lost_sync) print p | "sort"
+            close("sort")
+        }
+        if (length(eos) > 0) {
+            if (length(lost_sync) > 0) print ""
+            print "END_OF_STREAM"
+            print "----------"
+            for (p in eos) print p | "sort"
+            close("sort")
+        }
+    }
+    ' "$ERRORS_LOG"
+fi
 
-print()
-print("----------------------------------------")
-print(f"Processed: {total}  Passed: {ok_count}  Failed: {fail_count}")
-print("----------------------------------------")
-print("Step 1 – Initial Integrity Test")
-print("----------------------------------------")
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Passed: $ok_count  Failed: $fail_count"
+echo "----------------------------------------"
+echo "Step 1 – Initial Integrity Test"
+echo "----------------------------------------"
 
 ```
---- Script Step 1 End ---
+--- Bash Script Step 1 End ---
 
 \---------------------------------------------------------------------------------------
 

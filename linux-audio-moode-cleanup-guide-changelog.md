@@ -294,3 +294,32 @@ of changes from v30:
 * **Versioned copy** — the prior guide (v34) was archived as
   `linux-audio-moode-cleanup-guide-v34.md` before editing, per the
   update rule.
+
+---
+
+## v36 Change Log (2026-09-20)
+
+* **Step 1 converted to Python (no-.sh policy).** `step1-integrity`
+  replaces the bash integrity test. Preserved behaviors:
+  - **AUTOPURGE** — removes the entire suite log root at start of run
+    (Step 1 is the workflow entry point, so it owns the purge).
+  - **Optional cache pre-warm** prompt (stdin-tty only): sequential
+    read pass over the library with a live per-file counter, logging to
+    `step01-prewarm.log` / `step01-prewarm-errors.log`, manifest files
+    excluded from the warm pass.
+  - Same `find` exclusions and extension set as the bash version
+    (12 extensions; note 2A's list intentionally differs and was kept
+    as-is per format).
+  - Per-file `OK/FAIL [i/total]` lines print to screen (unlike the
+    log-only 2-series convention — preserved deliberately) plus a
+    blank-line album separator on folder change.
+  - The awk LOST_SYNC / END_OF_STREAM error grouping is replicated in
+    Python with identical line parsing and sorted output.
+  - Summary: Step/Run Date/Processed/Passed/Failed.
+* **Fixture test** (isolated HOME, 7 files incl. one truncated FLAC):
+  6 passed / 1 failed, the truncation surfaced in the Error Summary
+  under END_OF_STREAM with the relative path, summary tallies correct.
+  Pre-warm prompt skipped cleanly on non-tty stdin.
+* **Versioned copy** — the prior guide (v35) was archived as
+  `linux-audio-moode-cleanup-guide-v35.md` before editing, per the
+  update rule.
