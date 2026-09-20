@@ -323,3 +323,29 @@ of changes from v30:
 * **Versioned copy** — the prior guide (v35) was archived as
   `linux-audio-moode-cleanup-guide-v35.md` before editing, per the
   update rule.
+
+---
+
+## v37 Change Log (2026-09-20)
+
+* **Step 1B converted to Python (no-.sh policy).** `step1b-enforce`
+  replaces the bash naming-enforcement script. Preserved behaviors:
+  - DRY-RUN default, `--apply` to rename; usage error without a target.
+  - The six ordered separator patterns (NN - T / NN. T / NN-T / NN.T /
+    NN_T / NN T) normalize to "NN Title", with the Bandcamp fallback
+    extracting the trailing "NN Title" segment from
+    "Artist - Album - NN Title" names.
+  - Zero-padding, internal whitespace collapsing, COLLIDE detection
+    (target exists; file left untouched), MANUAL routing for names with
+    no track number, RENAME-FAIL reporting, and the renames log with
+    absolute targets.
+  - Summary mode block, terminal totals, and the dry-run rename-plan
+    printout.
+* **Fixture tests** (10-file library: all separator styles, a Bandcamp
+  name, a no-number file, a deliberate collision): dry-run reported
+  2 conforming / 6 to-rename / 2 skipped with the correct per-file
+  verdicts; --apply performed exactly the 6 planned renames; the
+  proof-clean re-run reported 8 conforming / 0 to-rename / 2 skipped.
+* **Versioned copy** — the prior guide (v36) was archived as
+  `linux-audio-moode-cleanup-guide-v36.md` before editing, per the
+  update rule.

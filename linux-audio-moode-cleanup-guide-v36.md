@@ -591,240 +591,223 @@ This step:
 
 Run from the terminal against the library root (or an artist folder for a targeted check):
 
---- Script Step 1B Start ---
-```python
+--- Bash Script Step 1B Start ---
+```bash
 
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+
+# Keep the terminal open on any failure so the error cause stays visible
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then trap - EXIT; echo; echo "Script exited with status $rc. Press ENTER to close this terminal."; read -r _; exit "$rc"; fi' EXIT
 # ============================================================
 # Step 1B – Enforce Naming Convention (NN TrackName)
-#   Usage: step1b-enforce /path/to/music/root [--apply]
+#   Usage: step1b.sh /path/to/music/root [--apply]
 #   Default is DRY-RUN (reports the renames it would make).
 #   Pass --apply to actually rename. A verified --apply run,
 #   followed by a re-run, reports 0 to-rename.
 # ============================================================
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
+set -u
 
-TARGET = sys.argv[1] if len(sys.argv) > 1 else None
-if not TARGET:
-    print("Usage: step1b-enforce /path/to/music/root [--apply]", file=sys.stderr)
-    sys.exit(1)
-APPLY = "--apply" in sys.argv[2:]
+TARGET="${1:?Usage: $0 /path/to/music/root [--apply]}"
+APPLY=0
+[ "${2:-}" = "--apply" ] && APPLY=1
 
-LOG_ROOT = os.path.join(os.path.expanduser("~"), ".logs", "linux-audio-moode-cleanup-guide")
-STEP = "step1b"
-MODE = "APPLY" if APPLY else "DRYRUN"
+LOG_ROOT="$HOME/.logs/linux-audio-moode-cleanup-guide"
+STEP="step1b"
 
-os.makedirs(LOG_ROOT, exist_ok=True)
+MODE=DRYRUN
+[ "$APPLY" -eq 1 ] && MODE=APPLY
 
-
-def keep_open_on_error(code):
-    if code != 0 and sys.stdout.isatty():
-        print(f"\nScript exited with status {code}. "
-              "Press ENTER to close this terminal.")
-        try:
-            input()
-        except EOFError:
-            pass
-    sys.exit(code)
-
+mkdir -p "$LOG_ROOT"
 
 # Software Preflight: fail loudly if a required tool is missing
-if shutil.which("find") is None:
-    print("ERROR: find is not installed. Install it and re-run "
-          "(see Requirements).", file=sys.stderr)
-    keep_open_on_error(1)
+for tool in find basename dirname mv; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "ERROR: $tool is not installed. Install it and re-run (see Requirements)." >&2
+        exit 1
+    fi
+done
 
 # 1. Define Log Files (Five-File Standard + rename map)
-RUN_LOG = os.path.join(LOG_ROOT, f"{STEP}-run.log")
-OKS_LOG = os.path.join(LOG_ROOT, f"{STEP}-oks.log")
-FAILS_LOG = os.path.join(LOG_ROOT, f"{STEP}-fails.log")
-ERRORS_LOG = os.path.join(LOG_ROOT, f"{STEP}-errors.log")
-SUMMARY_LOG = os.path.join(LOG_ROOT, f"{STEP}-summary.log")
-RENAMES_LOG = os.path.join(LOG_ROOT, f"{STEP}-renames.log")
+RUN_LOG="$LOG_ROOT/${STEP}-run.log"
+OKS_LOG="$LOG_ROOT/${STEP}-oks.log"
+FAILS_LOG="$LOG_ROOT/${STEP}-fails.log"
+ERRORS_LOG="$LOG_ROOT/${STEP}-errors.log"
+SUMMARY_LOG="$LOG_ROOT/${STEP}-summary.log"
+RENAMES_LOG="$LOG_ROOT/${STEP}-renames.log"
 
+# 2. CLEANUP: Delete this step's own logs from any previous run (prove-clean re-runs)
+rm -f "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG" "$RENAMES_LOG"
 
-def append(path, msg):
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+# 3. Initialize Empty Log Files
+touch "$RUN_LOG" "$OKS_LOG" "$FAILS_LOG" "$ERRORS_LOG" "$SUMMARY_LOG" "$RENAMES_LOG"
 
-
-# 2/3. CLEANUP + Initialize this step's logs from any previous run
-for path in (RUN_LOG, OKS_LOG, FAILS_LOG, ERRORS_LOG, SUMMARY_LOG, RENAMES_LOG):
-    open(path, "w").close()
-
-
-def banner(msg):
-    print(msg)
-    append(RUN_LOG, msg)
-
-
-banner(f"========== Step 1B: Enforce Naming Convention ({MODE}) ==========")
-banner(f"Root: {TARGET}")
-banner(f"Started: {time.strftime('%c')}")
-banner("Convention: 'NN TrackName.ext' - zero-padded number, NO dash")
-banner("Folders named 'Ignore' are skipped.")
-print()
+echo "========== Step 1B: Enforce Naming Convention ($MODE) ==========" | tee -a "$RUN_LOG"
+echo "Root: $TARGET" | tee -a "$RUN_LOG"
+echo "Started: $(date)" | tee -a "$RUN_LOG"
+echo "Convention: 'NN TrackName.ext' - zero-padded number, NO dash" | tee -a "$RUN_LOG"
+echo "Folders named 'Ignore' are skipped." | tee -a "$RUN_LOG"
+echo
 
 # 4. File Discovery (audio extensions; skip Ignore dirs and step artifacts)
-EXTS = ["flac", "mp3", "m4a", "ogg", "opus", "wav", "aiff", "aif", "mp4",
-        "ape", "wv", "spx"]
-find_args = ["find", TARGET, "-type", "f",
-             "!", "-ipath", "*/Ignore/*",
-             "!", "-iname", "*.prerepair*",
-             "!", "-iname", "*.fixed.*",
-             "!", "-iname", "*.reencode.*", "("]
-for i, e in enumerate(EXTS):
-    if i:
-        find_args.append("-o")
-    find_args += ["-iname", f"*.{e}"]
-find_args += [")", "-print0"]
+mapfile -d '' files < <(
+    find "$TARGET" -type f \
+        ! -ipath '*/Ignore/*' \
+        ! -iname "*.prerepair*" \
+        ! -iname "*.fixed.*" \
+        ! -iname "*.reencode.*" \
+        \( \
+            -iname "*.flac" -o \
+            -iname "*.mp3"  -o \
+            -iname "*.m4a"  -o \
+            -iname "*.ogg"  -o \
+            -iname "*.opus" -o \
+            -iname "*.wav"  -o \
+            -iname "*.aiff" -o \
+            -iname "*.aif"  -o \
+            -iname "*.mp4"  -o \
+            -iname "*.ape"  -o \
+            -iname "*.wv"   -o \
+            -iname "*.spx" \
+        \) -print0 2>>"$ERRORS_LOG" | sort -z
+)
 
-err_sink = open(ERRORS_LOG, "a")
-try:
-    r = subprocess.run(find_args, stdout=subprocess.PIPE,
-                       stderr=err_sink, check=False)
-finally:
-    err_sink.close()
-files = [p.decode("utf-8", "surrogateescape") for p in r.stdout.split(b"\0") if p]
-files.sort(key=lambda s: s.encode("utf-8", "surrogateescape"))  # sort -z
+total=${#files[@]}
+conforming=0
+renamed=0
+skipped=0
+i=0
 
-total = len(files)
-conforming = renamed = skipped = 0
+for f in "${files[@]}"; do
+    ((i++))
+    label="${f#"$TARGET"/}"
+    dir="$(dirname "$f")"
+    base="$(basename "$f")"
+    ext="${base##*.}"
+    name_no_ext="${base%.*}"
 
-# Ordered separators - explicit checks so titles beginning with '.'
-# or '-' (e.g. '01 ...Moves On') are preserved instead of eaten by a
-# greedy separator class:
-#   1) NN - Title   2) NN. Title   3) NN-Title
-#   4) NN.Title     5) NN_Title    6) NN Title
-# In strict convention, all of these normalize to "NN Title".
-#
-# Bandcamp-style names ("Artist - Album - NN Title.ext") carry no
-# leading track number. The trailing "NN Title" segment is extracted
-# and the Artist/Album prefix dropped. All remaining names report to
-# the fails log for a hand rename.
-PATTERNS = [
-    re.compile(r"^(\d+)\s+-\s+(.*)$"),
-    re.compile(r"^(\d+)\.\s+(.*)$"),
-    re.compile(r"^(\d+)-(.*)$"),
-    re.compile(r"^(\d+)\.(.*)$"),
-    re.compile(r"^(\d+)_(.*)$"),
-    re.compile(r"^(\d+)\s+(.*)$"),
-    re.compile(r"^.*\s-\s+(\d{1,3})(\s+)(.+)$"),
-]
-
-for i, path in enumerate(files, 1):
-    label = os.path.relpath(path, TARGET) if path.startswith(
-        os.path.abspath(TARGET) + os.sep) else path
-    directory = os.path.dirname(path)
-    base = os.path.basename(path)
-    stem, ext = os.path.splitext(base)
-    ext = ext[1:]  # strip leading dot
-
-    num = rest = None
-    for pi, pattern in enumerate(PATTERNS):
-        m = pattern.match(stem)
-        if not m:
-            continue
-        if pi == 6:  # Bandcamp: num and title are groups 1 and 3
-            num, rest = m.group(1), m.group(3)
-        else:
-            num, rest = m.group(1), m.group(2)
-        break
-
-    if num is None:
-        msg = f"MANUAL [{i}/{total}] {label}"
-        print(msg)
-        append(RUN_LOG, msg)
-        append(FAILS_LOG, msg)
-        append(ERRORS_LOG, f"[{i}/{total}] no leading track number available - "
-                           "rename needed by hand")
-        skipped += 1
+    # Ordered separators - explicit checks so titles beginning with '.'
+    # or '-' (e.g. '01 ...Moves On') are preserved instead of eaten by a
+    # greedy separator class:
+    #   1) NN - Title   2) NN. Title   3) NN-Title
+    #   4) NN.Title     5) NN_Title    6) NN Title
+    # In strict convention, all of these normalize to "NN Title".
+    #
+    # Bandcamp-style names ("Artist - Album - NN Title.ext") carry no
+    # leading track number. The trailing "NN Title" segment is extracted
+    # and the Artist/Album prefix dropped. All remaining names report to
+    # the fails log for a hand rename.
+    num=""
+    rest=""
+    if   [[ "$name_no_ext" =~ ^([0-9]+)[[:space:]]+-[[:space:]]+(.*)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    elif [[ "$name_no_ext" =~ ^([0-9]+)\.[[:space:]]+(.*)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    elif [[ "$name_no_ext" =~ ^([0-9]+)-(.*)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    elif [[ "$name_no_ext" =~ ^([0-9]+)\.(.*)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    elif [[ "$name_no_ext" =~ ^([0-9]+)_(.*)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    elif [[ "$name_no_ext" =~ ^([0-9]+)[[:space:]]+(.*)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    elif [[ "$name_no_ext" =~ ^.*[[:space:]]-[[:space:]]+([0-9]{1,3})([[:space:]]+)(.+)$ ]]; then
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[3]}"
+    else
+        msg="MANUAL [$i/$total] $label"
+        echo "$msg"
+        echo "$msg" >> "$RUN_LOG"
+        echo "$msg" >> "$FAILS_LOG"
+        echo "[$i/$total] no leading track number available - rename needed by hand" >> "$ERRORS_LOG"
+        skipped=$((skipped+1))
         continue
+    fi
 
     # Zero-pad track number to 2 digits
-    newnum = f"{int(num):02d}"
+    newnum=$(printf '%02d' "$((10#$num))")
 
     # Collapse internal whitespace runs, strip leading/trailing spaces
-    rest = re.sub(r"\s+", " ", rest).strip()
+    rest=$(printf '%s' "$rest" | tr -s '[:space:]' ' ' | sed -e 's/^[[:space:]]//' -e 's/[[:space:]]$//')
 
-    newbase = f"{newnum} {rest}{os.path.splitext(base)[1]}"
-    target = os.path.join(directory, newbase)
+    newbase="${newnum} ${rest}.${ext}"
+    target="$dir/$newbase"
 
-    if stem == f"{newnum} {rest}":
-        msg = f"OK    [{i}/{total}] {label}"
-        print(msg)
-        append(RUN_LOG, msg)
-        append(OKS_LOG, msg)
-        conforming += 1
+    if [[ "$name_no_ext" == "${newnum} ${rest}" ]]; then
+        msg="OK    [$i/$total] $label"
+        echo "$msg"
+        echo "$msg" >> "$RUN_LOG"
+        echo "$msg" >> "$OKS_LOG"
+        conforming=$((conforming+1))
         continue
+    fi
 
-    if os.path.exists(target) or os.path.islink(target):
-        msg = f"COLLIDE [{i}/{total}] {label} -> {newbase} (target exists; left untouched)"
-        print(msg)
-        append(RUN_LOG, msg)
-        append(FAILS_LOG, msg)
-        skipped += 1
+    if [ -e "$target" ] || [ -L "$target" ]; then
+        msg="COLLIDE [$i/$total] $label -> $newbase (target exists; left untouched)"
+        echo "$msg"
+        echo "$msg" >> "$RUN_LOG"
+        echo "$msg" >> "$FAILS_LOG"
+        skipped=$((skipped+1))
         continue
+    fi
 
-    if APPLY:
-        try:
-            os.rename(path, target)
-            msg = f"RENAME  [{i}/{total}] {label} -> {newbase}"
-        except OSError:
-            msg = f"RENAME-FAIL [{i}/{total}] {label}"
-            print(msg)
-            append(RUN_LOG, msg)
-            append(FAILS_LOG, msg)
-            skipped += 1
+    if [ "$APPLY" -eq 1 ]; then
+        mv -n -- "$f" "$target"
+        if [ $? -eq 0 ]; then
+            msg="RENAME  [$i/$total] $label -> $newbase"
+        else
+            msg="RENAME-FAIL [$i/$total] $label"
+            echo "$msg"
+            echo "$msg" >> "$RUN_LOG"
+            echo "$msg" >> "$FAILS_LOG"
+            skipped=$((skipped+1))
             continue
-    else:
-        msg = f"WOULD-RENAME [{i}/{total}] {label} -> {newbase}"
-    print(msg)
-    append(RUN_LOG, msg)
-    append(RENAMES_LOG, f"{label} -> {target}")
-    renamed += 1
+        fi
+    else
+        msg="WOULD-RENAME [$i/$total] $label -> $newbase"
+    fi
+    echo "$msg"
+    echo "$msg" >> "$RUN_LOG"
+    echo "$label -> $target" >> "$RENAMES_LOG"
+    renamed=$((renamed+1))
+done
 
 # 5. Generate Summary Log
-with open(SUMMARY_LOG, "w") as f:
-    f.write(f"Step 1B Summary ({MODE})\n")
-    f.write("========================\n\n")
-    f.write(f"Step       : {STEP}\n")
-    f.write(f"Run Date   : {time.strftime('%c')}\n")
-    f.write(f"Root       : {TARGET}\n")
-    f.write(f"Mode       : {MODE}\n\n")
-    f.write(f"Processed  : {total}\n")
-    f.write(f"Conforming : {conforming}\n")
-    f.write(f"To Rename  : {renamed}\n")
-    f.write(f"Skipped    : {skipped}\n\n")
-    if APPLY:
-        f.write("Renames performed. Re-run this script (dry-run) to confirm 0 to-rename.\n")
-    else:
-        f.write("DRY-RUN: no files were changed. Re-run with --apply to rename.\n")
+{
+echo "Step 1B Summary ($MODE)"
+echo "========================"
+echo
+echo "Step       : $STEP"
+echo "Run Date   : $(date)"
+echo "Root       : $TARGET"
+echo "Mode       : $MODE"
+echo
+echo "Processed  : $total"
+echo "Conforming : $conforming"
+echo "To Rename  : $renamed"
+echo "Skipped    : $skipped"
+echo
+if [ "$APPLY" -eq 1 ]; then
+    echo "Renames performed. Re-run this script (dry-run) to confirm 0 to-rename."
+else
+    echo "DRY-RUN: no files were changed. Re-run with --apply to rename."
+fi
+} > "$SUMMARY_LOG"
 
 # 6. Terminal Output
-print()
-print("----------------------------------------")
-print(f"Processed: {total}  Conforming: {conforming}  To Rename: {renamed}  "
-      f"Skipped: {skipped}")
-print("----------------------------------------")
-print(f"Step 1B - Enforce Naming Convention ({MODE})")
-print("----------------------------------------")
-if os.path.getsize(RENAMES_LOG) > 0 and not APPLY:
-    with open(RENAMES_LOG) as f:
-        n = len(f.read().splitlines())
-    print()
-    print(f"Dry-run rename plan ({n} line(s)):")
-    print("----------")
-    with open(RENAMES_LOG) as f:
-        print(f.read(), end="")
+echo
+echo "----------------------------------------"
+echo "Processed: $total  Conforming: $conforming  To Rename: $renamed  Skipped: $skipped"
+echo "----------------------------------------"
+echo "Step 1B - Enforce Naming Convention ($MODE)"
+echo "----------------------------------------"
+if [ -s "$RENAMES_LOG" ] && [ "$APPLY" -eq 0 ]; then
+    echo
+    echo "Dry-run rename plan ($(wc -l < "$RENAMES_LOG") line(s)):"
+    echo "----------"
+    cat "$RENAMES_LOG"
+fi
 
 ```
---- Script Step 1B End ---
+--- Bash Script Step 1B End ---
 
 Run it with your music root as the argument, e.g.:
 
