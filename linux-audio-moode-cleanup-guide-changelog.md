@@ -517,3 +517,22 @@ of changes from v30:
 * **Versioned copy** — the prior guide (v41) was archived as
   `linux-audio-moode-cleanup-guide-v41.md` before editing, per the
   update rule.
+
+## v43 Change Log (2026-09-21)
+
+* **Privacy pass — no personal or library-specific content in published
+  guides.** The Step 9 "Fixing Findings" section listed real artist
+  names from the author's library ("The ..." leading-article variants,
+  folder-vs-band-name variants), the library's file count, and a local
+  decision-record path (`Scripts/moode-run/FINALIZE/...`). All replaced
+  with generic descriptions of the same accepted-variant categories,
+  plus guidance to record such decisions locally rather than in the
+  guide.
+* **Policy:** published guides and changelogs must never contain real
+  artist/album names from the library, library statistics, local
+  paths, or personal identifiers. Examples in guides use generic
+  placeholders ("Artist Name", "The Artist Name").
+* **No script changes.**
+* **Versioned copy** — the prior guide (v42) was archived as
+  `linux-audio-moode-cleanup-guide-v42.md` before editing, per the
+  update rule.

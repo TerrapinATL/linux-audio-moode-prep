@@ -1,11 +1,10 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v42** — Current version; supersedes v41. Step 5 prose
-corrected: ReplayGain reapplication applies to every loudgain-supported
-format (FLAC, MP3, M4A/MP4, OGG, Opus, APE, WavPack, Speex), not only
-FLAC — matching what the Step 5 script has always done; Step 3 rebuilds
-all containers, so ReplayGain metadata can be stripped from any of them
-(documentation fix only, no script changes).
+**Version: v43** — Current version; supersedes v42. Privacy pass:
+removed library-specific and personal content from the Step 9 "Fixing
+Findings" section (real artist names, file counts, and a local
+decision-record path), replaced with generic variant descriptions.
+Documentation fix only, no script changes.
 (Conversions 2026-09-20.)
 
 Change log and version history are maintained separately:
@@ -4300,13 +4299,11 @@ A `SUMMARY:` line of `N file(s) checked, 0 had tag/filename mismatches.` means t
 Fixing findings:
 
 * Missing tags and tag drift that is a genuine error should be fixed with the **"Write Tags from Folder/File Names"** Nemo action (from the linux-audio-nemo-actions guide), or individually with EasyTAG. Both are lossless — audio is never re-encoded.
-* **Accepted variants are not errors.** The naming convention uses sort-friendly folder names while tags carry official display names, and Step 9 flags these by design. Verified on 2026-08-30 for this library (793 files, decision recorded in `Scripts/moode-run/FINALIZE/03-step9-accepted-variants-decision.md`):
-  - Folder "String Cheese Incident" vs tag "The String Cheese Incident"
-  - Folder "Bob Marley" vs tag "Bob Marley & The Wailers"
-  - Folder "Jimi Hendrix" vs tag "The Jimi Hendrix Experience"
-  - Folder "Saucerful Of Secrets" vs tag "A Saucerful Of Secrets" (leading-article sorting)
+* **Accepted variants are not errors.** The naming convention uses sort-friendly folder names while tags carry official display names, and Step 9 flags these by design. Typical accepted variants (seen in real libraries):
+  - Folder omitting the leading article vs tag with it ("The ...", "A ...") — leading-article sorting
+  - Folder naming the primary artist vs tag naming the full group/band or backing ensemble
   - "Various Artists" folders where each track's ARTIST is the real performer
-  Do NOT "fix" these by rewriting tags to match folders — that degrades what moOde displays.
+  Do NOT "fix" these by rewriting tags to match folders — that degrades what moOde displays. Decide once which variants your own library accepts, record that decision locally, and treat those findings as clean in future runs.
 * After any tag fix, the checksums for the affected album(s)/artist(s) are stale. Re-run Step 16 (Generate Checksums) — or the "Regenerate ALBUM/ARTIST Checksum" Nemo action — to record the corrected state.
 * Optionally re-run Step 9 afterward. A clean Step 9 result now includes accepted variants; zero is no longer the target.
 
