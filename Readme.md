@@ -1,6 +1,6 @@
 # Linux Audio Utilities — moOde Library Cleanup Guide
 
-**Guide version: v32** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v31. Adds optional procedure 15d "Ignore-Content Certification" (2026-09-17): integrity-tests every audio file inside every `Ignore` folder and writes a self-contained `Ignore.sha512sums.txt` per folder (see the change log).
+**Guide version: v41** — The full moOde library cleanup guide (`linux-audio-moode-cleanup-guide.md`). Current version; supersedes v40. The no-`.sh` conversion is complete (2026-09-20): every embedded script — Steps 1, 1B, 2A–2E, 3, 4, 5, 6–10, 15a–15d and the Preflight — is now extensionless Python (see the change log). Earlier notable addition retained from v32: optional procedure 15d "Ignore-Content Certification", which integrity-tests every audio file inside every `Ignore` folder and writes a self-contained `Ignore.sha512sums.txt` per folder.
 
 * Full guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide.md)
 * Change log: [linux-audio-moode-cleanup-guide-changelog.md](linux-audio-moode-cleanup-guide-changelog.md)
