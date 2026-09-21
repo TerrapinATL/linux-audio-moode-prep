@@ -500,3 +500,20 @@ of changes from v30:
 * **Remaining embedded bash**: the small "Cat"/"Results" log-viewer
   snippets (5-37 lines each) are intentionally left as documented
   one-liners for viewing logs; they are not part of the pipeline.
+
+## v42 Change Log (2026-09-21)
+
+* **Documentation fix — Step 5 format scope.** The Step 5 Purpose text
+  said ReplayGain was restored "after the FLAC container rebuild" (three
+  places), implying the step is FLAC-only. It never was: Step 3 rebuilds
+  containers for all formats (FLAC, MP3, M4A, OGG, Opus, WAV, AIFF) and
+  strips their metadata, and the Step 5 script has always scanned every
+  loudgain-supported extension (flac, mp3, m4a, mp4, ogg, opus, ape, wv,
+  spx). Prose now states the full format list and notes that WAV and
+  AIFF, while rebuilt by Step 3, are not loudgain-supported and cannot
+  carry ReplayGain tags.
+* **No script changes.** Embedded Step 5 script untouched; re-verified
+  its SUPPORTED_EXTS list while documenting.
+* **Versioned copy** — the prior guide (v41) was archived as
+  `linux-audio-moode-cleanup-guide-v41.md` before editing, per the
+  update rule.

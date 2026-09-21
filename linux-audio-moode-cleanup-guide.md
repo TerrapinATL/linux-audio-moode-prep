@@ -1,11 +1,11 @@
 ### linux-audio-moode-cleanup-guide
 
-**Version: v41** — Current version; supersedes v40. The ENTIRE embedded
-script suite is now extensionless Python: Preflight, Steps 1, 1B, 2A,
-2B, 2C.1-2C.6, 2D, 2E, 3-10 and 15a-15d (no-.sh policy). Opus tool
-invocations corrected for opustags 1.9.x; the M4A loudgain album-mode
-segfault is worked around per Recert Step 2B; the Preflight script
-block's missing End marker was repaired.
+**Version: v42** — Current version; supersedes v41. Step 5 prose
+corrected: ReplayGain reapplication applies to every loudgain-supported
+format (FLAC, MP3, M4A/MP4, OGG, Opus, APE, WavPack, Speex), not only
+FLAC — matching what the Step 5 script has always done; Step 3 rebuilds
+all containers, so ReplayGain metadata can be stripped from any of them
+(documentation fix only, no script changes).
 (Conversions 2026-09-20.)
 
 Change log and version history are maintained separately:
@@ -3110,11 +3110,11 @@ cat "$LOG_ROOT/${STEP}-fails.log"
 
 -- Purpose
 
-This step restores ReplayGain metadata that may have been removed during the FLAC container rebuild performed in Step 3.
+This step restores ReplayGain metadata that may have been removed during the container rebuild performed in Step 3 (all formats).
 
 ReplayGain stores volume adjustment information in metadata tags so compatible music players can provide consistent playback volume between tracks and albums without changing the actual audio data.
 
-This step recalculates and reapplies ReplayGain information after the FLAC files have been rebuilt and verified.
+This step recalculates and reapplies ReplayGain information after the audio files have been rebuilt and verified in Step 3. It applies to every loudgain-supported format — FLAC, MP3, M4A/MP4, OGG, Opus, APE, WavPack and Speex (WAV and AIFF are rebuilt by Step 3 but are not loudgain-supported and cannot carry ReplayGain).
 
 -- What It Does
 
@@ -3126,7 +3126,7 @@ This step:
 * Writes ReplayGain metadata back into the files.
 * Records albums that were successfully processed and any failures.
 
-This step recalculates and reapplies ReplayGain metadata after the FLAC container rebuilds in Step 3. ReplayGain stores volume adjustment so compatible players provide consistent playback levels without changing audio data.
+This step recalculates and reapplies ReplayGain metadata after the Step 3 container rebuild (all loudgain-supported formats, not only FLAC). ReplayGain stores volume adjustment so compatible players provide consistent playback levels without changing audio data.
 
 No audio is modified or re-encoded. Calculation is performed at album level to preserve track relationships within each album.
 
