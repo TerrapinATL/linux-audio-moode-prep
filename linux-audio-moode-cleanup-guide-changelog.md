@@ -524,7 +524,7 @@ of changes from v30:
   guides.** The Step 9 "Fixing Findings" section listed real artist
   names from the author's library ("The ..." leading-article variants,
   folder-vs-band-name variants), the library's file count, and a local
-  decision-record path (`Scripts/moode-run/FINALIZE/...`). All replaced
+  decision-record path. All replaced
   with generic descriptions of the same accepted-variant categories,
   plus guidance to record such decisions locally rather than in the
   guide.
