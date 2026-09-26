@@ -15,6 +15,44 @@ Main guide: [linux-audio-moode-cleanup-guide.md](linux-audio-moode-cleanup-guide
 
 ---
 
+## v1–v27 Change Logs (recovered summary)
+
+No per-version change log was recorded before v28. This summary was
+reconstructed (2026-09-26) from the archived guide copies in the local
+`Old/` archive (v1–v42) and the repository commit history. Approximate
+dates follow the commit record.
+
+* **Pre-rename lineage (Jul–Aug 2026)** — the guide began life as a
+  FLAC-only cleanup workflow and was first published to GitHub as
+  `linux.audio.flac-cleanup-guide-v8.md` (the guide's pre-rename version
+  numbering): integrity testing, metadata cleanup, container rebuilding,
+  and ReplayGain volume normalization.
+* **Early additions (Aug 2–4)** — multi-disc album handling; Raspberry Pi
+  music server recommendations; multi-format audio integrity testing;
+  deep-repair section for damaged audio files.
+* **ReplayGain era (Aug 6–7)** — ReplayGain reapplication refactored for
+  multiple formats (loudgain flags per format).
+* **Artwork (Aug 9)** — artwork detection, normalization, and album
+  artwork embedding.
+* **Logging and error handling (Aug 10–18)** — step-by-step logging
+  improvements across the integrity test and Steps 2A/2B/2C; error
+  logging and candidate discovery; format validation; preflight
+  dependency check script; MP3 metadata extraction and rebuilding;
+  error documentation for the repair script.
+* **moode-cleanup-guide rename (Aug 24, guide v3)** — renamed and scope
+  expanded from FLAC-only to the formats moOde supports for playback
+  (FLAC, MP3, M4A/AAC, WavPack, later OGG/Opus), with the Format Support
+  Status table added to Section 04.
+* **v4–v27 (Aug 25–30)** — continued error handling refactors
+  (Steps 2B/2C), summary generation, section headers converted to
+  Markdown format, total MP3 candidate count calculation, and the
+  library naming convention section with the `NN Title` dashless track
+  naming convention adopted (published as v26, Aug 30).
+* **v28** (Aug 30) — the first version published WITH this change log;
+  per-version entries begin here. See the v28 entry below.
+
+---
+
 ## v28 Change Log (2026-08-30)
 
 This revision folds in the completed finalize run of the full library
